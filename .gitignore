@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Caches
+.cache/
+.eslintcache
+.npm/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local configuration with real client data — never commit
+sites.json
+sites.local.json
+
+# Local-only notes and briefing files (context, not part of the public repo)
+PROJECT_BRIEF.md
+NOTES.md
+notes/
+.claude/
+.scratch/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
