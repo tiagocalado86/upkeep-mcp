@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
 ### Added
 
 - `seo_audit`: title and meta description with their lengths, heading structure,
@@ -129,5 +131,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this release needs sits on that boundary. See
   `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tiagocalado86/upkeep-mcp/releases/tag/v0.1.0
