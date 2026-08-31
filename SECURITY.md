@@ -5,10 +5,10 @@
 `upkeep-mcp` is in early development and has not had a tagged release yet.
 Until `v0.1.0` ships, only the `main` branch is supported.
 
-| Version | Supported |
-| --- | --- |
-| `main` | ✅ |
-| Anything else | ❌ |
+| Version       | Supported |
+| ------------- | --------- |
+| `main`        | ✅        |
+| Anything else | ❌        |
 
 ## Reporting a vulnerability
 

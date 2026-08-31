@@ -3,10 +3,9 @@
 Thanks for taking a look. This is a small, opinionated project; the sections
 below cover what you need to work on it without guessing.
 
-> **Status:** the repository is in Phase 0 (scaffolding). The toolchain
-> described under [Setup](#setup) is being put in place — until `package.json`
-> lands, the `npm run` commands below do not exist yet. The conventions and the
-> review rules apply from the first line of code.
+> **Status:** Phase 0 (scaffolding) is complete — the toolchain below works
+> and the server runs, with `health` as its only tool. Phase 1 adds
+> `domain_check`, `ssl_check` and `uptime_check`.
 
 ## Ground rules
 
@@ -33,17 +32,19 @@ npm install
 
 Common commands:
 
-| Command | What it does |
-| --- | --- |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run dev` | Run the stdio server against the sources |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest, unit tests only, no network |
+| Command                    | What it does                                    |
+| -------------------------- | ----------------------------------------------- |
+| `npm run build`            | Compile TypeScript to `dist/`                   |
+| `npm run dev`              | Run the stdio server against the sources        |
+| `npm run lint`             | ESLint                                          |
+| `npm run typecheck`        | `tsc --noEmit`                                  |
+| `npm run format`           | Prettier, writing in place                      |
+| `npm run check`            | Format, lint, typecheck and tests — the CI gate |
+| `npm test`                 | Vitest, unit tests only, no network             |
 | `npm run test:integration` | Integration tests — real network, not run in CI |
 
-`npm run lint`, `npm run typecheck` and `npm test` are what CI runs. Run them
-before opening a pull request.
+`npm run check` is the same gate CI applies, on Node.js 20 and 22. Run it before
+opening a pull request.
 
 ## Testing
 
@@ -100,7 +101,7 @@ decoration — it is what the model reads to decide whether and how to call the
 tool. A vague description produces wrong tool calls.
 
 Each tool description states what it does, when it should be used, when it
-should *not* be, and what it returns. Each input field gets a description, the
+should _not_ be, and what it returns. Each input field gets a description, the
 expected format and an example (`domain: "example.com", no scheme, no trailing
 slash`). Write both for someone who has never seen the project.
 
@@ -113,7 +114,7 @@ slash`). Write both for someone who has never seen the project.
 - Dates in ISO 8601 with a timezone; days-until-expiry computed in UTC.
 - JSDoc on everything exported from `lib/`: purpose, parameters, return value,
   and which errors it throws.
-- Comments explain *why*, never *what*. Where a decision is not obvious — a
+- Comments explain _why_, never _what_. Where a decision is not obvious — a
   specific timeout, the RDAP-to-WHOIS fallback, a parsing tolerance — say why.
 - Code, comments, error messages and documentation in English.
 

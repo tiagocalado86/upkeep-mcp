@@ -10,19 +10,55 @@ attention this week?**
 
 ## Status
 
-Early development. Nothing is implemented yet — this repository is being built
-in public, phase by phase.
+Early development, built in public phase by phase. The server runs and connects,
+but the checks themselves are not implemented yet — only `health` is available
+today.
 
-Planned tools:
+| Tool                  | Purpose                                                               | Status    |
+| --------------------- | --------------------------------------------------------------------- | --------- |
+| `health`              | Server name, version, Node.js version, uptime                         | Available |
+| `domain_check`        | Registration expiry, registrar, nameservers, DNS records, DNSSEC      | Planned   |
+| `ssl_check`           | Certificate expiry, issuer, chain validity, SAN coverage, TLS version | Planned   |
+| `uptime_check`        | HTTP status, response time, redirect chain, security headers          | Planned   |
+| `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links   | Planned   |
+| `accessibility_audit` | WCAG violations via axe-core                                          | Planned   |
+| `portfolio_report`    | All of the above across a portfolio, sorted by urgency                | Planned   |
 
-| Tool | Purpose |
-| --- | --- |
-| `domain_check` | Registration expiry, registrar, nameservers, DNS records, DNSSEC |
-| `ssl_check` | Certificate expiry, issuer, chain validity, SAN coverage, TLS version |
-| `uptime_check` | HTTP status, response time, redirect chain, security headers |
-| `seo_audit` | Title, meta, headings, canonical, robots.txt, sitemap, broken links |
-| `accessibility_audit` | WCAG violations via axe-core |
-| `portfolio_report` | All of the above across a portfolio, sorted by urgency |
+## Installation
+
+Requires **Node.js 20 or newer**. Not published to npm yet — install from
+source:
+
+```bash
+git clone https://github.com/tiagocalado86/upkeep-mcp.git
+cd upkeep-mcp
+npm install
+npm run build
+```
+
+### Claude Code
+
+```bash
+claude mcp add upkeep -- node /absolute/path/to/upkeep-mcp/dist/index.js
+```
+
+### Claude Desktop
+
+Add the server to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "upkeep": {
+      "command": "node",
+      "args": ["/absolute/path/to/upkeep-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+Restart the client and ask it to run the `health` tool. It answers with the
+server version, the Node.js version and how long the process has been up.
 
 ## Security & privacy
 
@@ -37,10 +73,6 @@ information that any person with a browser or a DNS resolver could read.
   an identifiable `User-Agent`.
 - No persistent sensitive state. Caching is in memory or in a local file, with
   a TTL.
-
-## Requirements
-
-- Node.js 20 or newer
 
 ## License
 

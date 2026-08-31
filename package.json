@@ -1,0 +1,72 @@
+{
+  "name": "upkeep-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for ongoing website maintenance checks: domains, SSL, uptime, technical SEO and accessibility — from public information only.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ssl",
+    "dns",
+    "domain",
+    "uptime",
+    "seo",
+    "accessibility",
+    "website-monitoring"
+  ],
+  "license": "MIT",
+  "author": "Tiago Calado",
+  "homepage": "https://github.com/tiagocalado86/upkeep-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiagocalado86/upkeep-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tiagocalado86/upkeep-mcp/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "upkeep-mcp": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "sites.example.json",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.4.0",
+    "eslint": "^10.9.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
+  }
+}
