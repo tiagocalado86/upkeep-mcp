@@ -32,6 +32,11 @@ process. Compare against it when it exists. Say plainly when it does not.
   explicitly (`comparedWithPreviousRun: false`), and the text summary says it in
   words, because an empty list of regressions must never be readable as "nothing
   regressed".
+- A snapshot records which checks it measured, per site, and a comparison is
+  made only where both runs measured the same things. Two runs that looked at
+  different checks are not comparable at all, and saying otherwise turns the
+  quick `checks: ["uptime"]` pass the tool itself recommends into a page of
+  invented regressions.
 - Only the previous run is kept, not a series. A trend over quarters is a
   different feature with different storage, and it would need the user's
   explicit decision about where that data lives.

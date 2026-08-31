@@ -232,8 +232,9 @@ that does less.
 - **"What changed since last time" lasts as long as the server process.** The
   previous run is held in memory and never written to disk, so a restarted
   server has nothing to compare against — and says so, rather than implying
-  nothing changed. [`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md)
-  explains the trade.
+  nothing changed. Only sites both runs measured the same way are compared, so a
+  quick uptime-only pass never invents regressions in the run after it.
+  [`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md) explains the trade.
 - **Certificates and domains are judged on different clocks.** A registration is
   a warning inside 30 days; a certificate only inside 14. ACME clients renew with
   30 days left, so warning that early would fire on nearly every healthy site.

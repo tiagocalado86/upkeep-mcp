@@ -6,7 +6,6 @@ import { EMPTY_ROBOTS } from '../../src/lib/robots.js';
 import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
 import {
   NOW,
-  findingCodes,
   healthyDns,
   inspection,
   registration,
@@ -116,6 +115,25 @@ function portfolioPorts(
   };
 }
 
+/** One site's row in the report, typed so the assertions stay readable. */
+interface ReportedSite {
+  name: string;
+  url: string;
+  severity: string;
+  soonestExpiryDays: number | null;
+  notes: string | null;
+  findings: { code: string; severity: string; check: string }[];
+  checks: { check: string; ran: boolean; severity: string }[];
+}
+
+/**
+ * @param result A report result.
+ * @returns Its sites, in the order the report ranked them.
+ */
+function sitesOf(result: Awaited<ReturnType<typeof runPortfolioReport>>): ReportedSite[] {
+  return structured(result)['sites'] as ReportedSite[];
+}
+
 const ALL_THREE: CheckName[] = ['domain', 'ssl', 'uptime'];
 
 const TWO_SITES = [
@@ -151,7 +169,7 @@ describe('runPortfolioReport', () => {
       }),
     );
 
-    const sites = structured(result)['sites'] as { name: string; severity: string }[];
+    const sites = sitesOf(result);
     expect(sites[0]).toMatchObject({ name: 'Urgent Ltd', severity: 'critical' });
     expect(sites[1]).toMatchObject({ name: 'Healthy Ltd', severity: 'ok' });
     expect(structured(result)['severity']).toBe('critical');
@@ -168,7 +186,7 @@ describe('runPortfolioReport', () => {
       portfolioPorts({ 'later.example': { cert: 12 }, 'sooner.example': { cert: 9 } }),
     );
 
-    const sites = structured(result)['sites'] as { name: string; soonestExpiryDays: number }[];
+    const sites = sitesOf(result);
     expect(sites.map((site) => site.name)).toEqual(['Sooner', 'Later']);
     expect(sites[0]?.soonestExpiryDays).toBe(9);
   });
@@ -214,14 +232,12 @@ describe('runPortfolioReport', () => {
     );
 
     expect(result.isError).toBeFalsy();
-    const site = (
-      structured(result)['sites'] as { checks: { check: string; ran: boolean }[] }[]
-    )[0];
+    const site = sitesOf(result)[0];
     expect(site?.checks).toEqual([
       expect.objectContaining({ check: 'ssl', ran: false, severity: 'unknown' }),
       expect.objectContaining({ check: 'uptime', ran: true }),
     ]);
-    expect(findingCodes(result)).toEqual([]);
+    expect(site?.findings.map((item) => item.code)).toEqual(['ssl_check_failed']);
   });
 
   it('runs only the checks the caller asked for', async () => {
@@ -230,7 +246,7 @@ describe('runPortfolioReport', () => {
       portfolioPorts({ 'healthy.example': {}, 'urgent.example': {} }),
     );
 
-    const sites = structured(result)['sites'] as { checks: { check: string }[] }[];
+    const sites = sitesOf(result);
     expect(sites.every((site) => site.checks.every((check) => check.check === 'uptime'))).toBe(
       true,
     );
@@ -259,7 +275,7 @@ describe('runPortfolioReport', () => {
     );
 
     expect(structured(result)['siteCount']).toBe(1);
-    expect((structured(result)['sites'] as { name: string }[])[0]?.name).toBe('Kept');
+    expect(sitesOf(result)[0]?.name).toBe('Kept');
   });
 
   it('says so when a tag matches nothing, rather than reporting an empty portfolio', async () => {
@@ -334,10 +350,62 @@ describe('runPortfolioReport', () => {
     expect(structured(result)['changes']).toMatchObject({
       comparedWithPreviousRun: false,
       previousRunAt: null,
+      sitesCompared: 0,
       regressed: [],
     });
     // An empty list of regressions must never read as "nothing regressed".
-    expect(text(result)).toContain('nothing to compare against');
+    expect(text(result)).toContain('Nothing comparable in this session yet');
+  });
+
+  it('does not invent regressions when the previous run measured different checks', async () => {
+    const history = createMemoryHistory();
+    const sites = [...TWO_SITES];
+    const fixtures = { 'healthy.example': {}, 'urgent.example': { cert: 3 } };
+
+    // The tool's own description recommends this quick pass.
+    await runPortfolioReport(
+      { sites, checks: ['uptime'] as CheckName[] },
+      portfolioPorts(fixtures, { history }),
+    );
+
+    const full = await runPortfolioReport({ sites }, portfolioPorts(fixtures, { history }));
+
+    expect(structured(full)['changes']).toMatchObject({
+      comparedWithPreviousRun: false,
+      sitesCompared: 0,
+      regressed: [],
+      newFindings: [],
+    });
+  });
+
+  it('does not announce an improvement when the second run simply looked at less', async () => {
+    const history = createMemoryHistory();
+    const sites = [...TWO_SITES];
+    const fixtures = { 'healthy.example': {}, 'urgent.example': { cert: 3 } };
+
+    await runPortfolioReport({ sites }, portfolioPorts(fixtures, { history }));
+
+    const quick = await runPortfolioReport(
+      { sites, checks: ['uptime'] as CheckName[] },
+      portfolioPorts(fixtures, { history }),
+    );
+
+    // A certificate expiring in three days has not improved just because this
+    // run did not look at certificates.
+    expect(structured(quick)['changes']).toMatchObject({ sitesCompared: 0, improved: [] });
+  });
+
+  it('keeps two sites that share a URL apart in the history', async () => {
+    const history = createMemoryHistory();
+    const sites = [
+      { name: 'Live', url: 'https://shared.example', checks: ['uptime'] as CheckName[] },
+      { name: 'Staging entry', url: 'https://shared.example', checks: ['uptime'] as CheckName[] },
+    ];
+
+    await runPortfolioReport({ sites }, portfolioPorts({}, { history }));
+    const second = await runPortfolioReport({ sites }, portfolioPorts({}, { history }));
+
+    expect(structured(second)['changes']).toMatchObject({ sitesCompared: 2 });
   });
 
   it('reports what got worse and what got better since the previous run', async () => {
@@ -364,6 +432,52 @@ describe('runPortfolioReport', () => {
     expect(text(second)).toContain('Healthy Ltd got worse');
   });
 
+  it('orders what needs action worst first across the whole portfolio', async () => {
+    const result = await runPortfolioReport(
+      {
+        sites: [
+          { name: 'A', url: 'https://a.example', checks: ['domain', 'ssl'] as CheckName[] },
+          { name: 'B', url: 'https://b.example', checks: ['ssl'] as CheckName[] },
+        ],
+      },
+      portfolioPorts({
+        'a.example': { cert: 2, domainDays: 20 },
+        'b.example': { cert: 3 },
+      }),
+    );
+
+    // A's 20-day registration warning must not print above B's 3-day critical
+    // just because A is the more urgent site overall.
+    const severities = (structured(result)['needsAttention'] as { severity: string }[]).map(
+      (item) => item.severity,
+    );
+    expect(severities).toEqual(['critical', 'critical', 'warning']);
+  });
+
+  it('does not report a site as healthy when none of its checks could run', async () => {
+    const result = await runPortfolioReport(
+      {
+        sites: [
+          {
+            name: 'Only A11y',
+            url: 'https://a11y.example',
+            checks: ['accessibility'] as CheckName[],
+          },
+        ],
+      },
+      portfolioPorts({}),
+    );
+
+    const site = sitesOf(result)[0];
+    expect(site?.severity).toBe('unknown');
+    // One entry per check that was asked for, as the schema promises.
+    expect(site?.checks).toEqual([
+      expect.objectContaining({ check: 'accessibility', ran: false, severity: 'unknown' }),
+    ]);
+    expect(site?.findings.map((item) => item.code)).toContain('no_checks_ran');
+    expect(text(result)).not.toContain('Nothing to do');
+  });
+
   it('carries the notes from the portfolio file into the report', async () => {
     const result = await runPortfolioReport(
       {
@@ -379,8 +493,6 @@ describe('runPortfolioReport', () => {
       portfolioPorts({}),
     );
 
-    expect((structured(result)['sites'] as { notes: string }[])[0]?.notes).toBe(
-      'Renewal is slow to approve.',
-    );
+    expect(sitesOf(result)[0]?.notes).toBe('Renewal is slow to approve.');
   });
 });

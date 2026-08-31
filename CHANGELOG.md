@@ -33,8 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spending a tool call, and the `quarterly_report` prompt, which turns a
   portfolio run into the report a client reads.
 - Comparison with the previous run, held in memory for the life of the server
-  process and never written to disk. The report says when it has nothing to
-  compare against. See `docs/adr/0011-in-memory-run-history.md`.
+  process and never written to disk. Only sites that both runs measured the same
+  way are compared, and the report says how many that was: comparing a quick
+  `checks: ["uptime"]` pass against a full run would otherwise report every
+  certificate and registration finding as newly appeared — or, in the other
+  order, announce that a site with a certificate expiring in three days had
+  improved. See `docs/adr/0011-in-memory-run-history.md`.
+- A site whose requested checks cannot all run reports them anyway, with
+  `ran: false`; one whose checks can none of them run is `unknown`, never `ok`.
+  A portfolio must not read as healthy having checked nothing.
 - `npm run coverage`, and tests for the pieces that had none: the DNS record
   mapping, the certificate chain walk, error categorisation, the RDAP lookup
   path and the portfolio machinery.

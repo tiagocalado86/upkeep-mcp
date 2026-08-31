@@ -17,7 +17,7 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-First run in this session, so there is nothing to compare against yet.
+Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.
 
 Nothing to do: Example Foundation.
 ```
@@ -26,7 +26,7 @@ Structured content:
 
 ```json
 {
-  "generatedAt": "2026-08-31T22:37:53.359Z",
+  "generatedAt": "2026-08-31T23:07:50.038Z",
   "source": "inline",
   "file": null,
   "siteCount": 3,
@@ -75,6 +75,7 @@ Structured content:
   "changes": {
     "comparedWithPreviousRun": false,
     "previousRunAt": null,
+    "sitesCompared": 0,
     "regressed": [],
     "improved": [],
     "newFindings": []
@@ -134,7 +135,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.com/ answered 200 in 23ms.",
+          "headline": "https://example.com/ answered 200 in 19ms.",
           "error": null
         }
       ]
@@ -178,7 +179,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.net/ answered 200 in 514ms.",
+          "headline": "https://example.net/ answered 200 in 168ms.",
           "error": null
         }
       ]

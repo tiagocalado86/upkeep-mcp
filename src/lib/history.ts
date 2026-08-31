@@ -1,3 +1,4 @@
+import type { CheckName } from './portfolio.js';
 import type { Severity } from '../types.js';
 
 /**
@@ -17,6 +18,16 @@ export interface SiteOutcome {
   severity: Severity;
   /** The finding codes reported, so new problems can be named. */
   codes: string[];
+  /**
+   * Which checks produced it.
+   *
+   * Without this a comparison lies. The tool's own description recommends a
+   * quick `checks: ["uptime"]` pass; comparing that against a full run would
+   * report every certificate and registration finding as newly appeared, or —
+   * worse, in the other order — announce that a site with a certificate
+   * expiring in three days has improved from critical to ok.
+   */
+  checks: CheckName[];
 }
 
 /** The outcome of one whole run. */

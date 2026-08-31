@@ -12,7 +12,13 @@ describe('createMemoryHistory', () => {
     const history = createMemoryHistory();
     const snapshot = {
       takenAt: '2026-08-31T12:00:00.000Z',
-      sites: { 'https://example.com/': { severity: 'warning' as const, codes: ['a'] } },
+      sites: {
+        'https://example.com/': {
+          severity: 'warning' as const,
+          codes: ['a'],
+          checks: ['uptime' as const],
+        },
+      },
     };
 
     history.record(snapshot);

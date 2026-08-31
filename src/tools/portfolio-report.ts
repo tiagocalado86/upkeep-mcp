@@ -165,6 +165,13 @@ const outputSchema = z.object({
             'can be said about what changed — history is kept in memory only.',
         ),
       previousRunAt: z.iso.datetime().nullable().describe('When the previous run happened.'),
+      sitesCompared: z
+        .int()
+        .describe(
+          'How many sites this run could actually be compared against. A site is comparable only ' +
+            'when both runs measured the same checks: comparing a quick uptime-only pass with a ' +
+            'full run would invent regressions, or hide them.',
+        ),
       regressed: z
         .array(z.object({ site: z.string(), from: severitySchema, to: severitySchema }))
         .describe('Sites that got worse since the previous run.'),
@@ -233,18 +240,7 @@ export async function runPortfolioReport(input: Input, ports: Ports): Promise<Ca
     siteCount: ranked.length,
     severity: worstSeverity(ranked.map((site) => finding('site', site.severity, site.name))),
     summary: countSeverities(ranked),
-    needsAttention: ranked.flatMap((site) =>
-      site.findings
-        .filter((item) => item.severity === 'critical' || item.severity === 'warning')
-        .map((item) => ({
-          site: site.name,
-          url: site.url,
-          check: item.check,
-          code: item.code,
-          severity: item.severity,
-          message: item.message,
-        })),
-    ),
+    needsAttention: needsAttentionOf(ranked),
     changes,
     notes,
     sites: ranked,
@@ -288,7 +284,8 @@ export function registerPortfolioReportTool(
         '',
         'What changed since the previous run is compared in memory, so it is available only while',
         'this server process keeps running, and the report says when it has nothing to compare',
-        'against rather than implying nothing changed.',
+        'against rather than implying nothing changed. Only sites that both runs measured the same',
+        'way are compared, so a quick uptime-only pass never invents regressions in the run after it.',
       ].join('\n'),
       inputSchema,
       outputSchema,
@@ -345,7 +342,9 @@ async function checkSite(
   override: CheckName[] | undefined,
   ports: Ports,
 ): Promise<SiteResult> {
-  const wanted = (override ?? site.checks).filter((check) => IMPLEMENTED_CHECKS.includes(check));
+  const asked = override ?? site.checks;
+  const wanted = asked.filter((check) => IMPLEMENTED_CHECKS.includes(check));
+  const unavailable = asked.filter((check) => !IMPLEMENTED_CHECKS.includes(check));
 
   const outcomes = await Promise.all(
     wanted.map(async (check): Promise<{ check: CheckName; outcome: CheckOutcome }> => ({
@@ -355,7 +354,16 @@ async function checkSite(
   );
 
   const findings: TaggedFinding[] = [];
-  const checks: CheckResult[] = [];
+  // One entry per check that was asked for, as the schema promises — including
+  // the ones that do not exist yet, which would otherwise vanish from the site's
+  // own row and leave only a note at the end of the report.
+  const checks: CheckResult[] = unavailable.map((check) => ({
+    check,
+    ran: false,
+    severity: 'unknown',
+    headline: `The ${check} check is not implemented yet.`,
+    error: 'not implemented yet',
+  }));
   let soonestExpiryDays: number | null = null;
 
   for (const { check, outcome } of outcomes) {
@@ -388,6 +396,21 @@ async function checkSite(
           ? summary.daysUntilExpiry
           : Math.min(soonestExpiryDays, summary.daysUntilExpiry);
     }
+  }
+
+  if (wanted.length === 0) {
+    // Nothing ran, so nothing is known. Without this the site reports `ok` and
+    // the summary counts it among the ones with nothing to do — a portfolio
+    // could read as entirely healthy having checked nothing at all.
+    findings.push({
+      check: asked[0] ?? 'domain',
+      code: 'no_checks_ran',
+      severity: 'unknown',
+      message:
+        asked.length === 0
+          ? 'No checks were requested for this site, so nothing is known about it.'
+          : `None of the checks this site asks for can run yet (${asked.join(', ')}), so nothing is known about it.`,
+    });
   }
 
   const ordered = sortFindings(findings);
@@ -503,6 +526,43 @@ function countSkippedChecks(
   return counts;
 }
 
+/**
+ * Flattens what needs acting on across the portfolio, worst first.
+ *
+ * The sort is the point. Concatenating each site's findings in site order — the
+ * obvious implementation — puts a site's own 20-day warning above the next
+ * site's 3-day critical, while both the schema and the tool's description
+ * promise "worst first". Sorting is stable, so within one severity the sites
+ * keep their urgency ranking and a site's findings keep their own order.
+ *
+ * @param sites The ranked sites.
+ * @returns Every critical and warning finding, worst first.
+ * @throws Never.
+ */
+function needsAttentionOf(sites: readonly SiteResult[]): {
+  site: string;
+  url: string;
+  check: CheckName;
+  code: string;
+  severity: Severity;
+  message: string;
+}[] {
+  return sites
+    .flatMap((site) =>
+      site.findings
+        .filter((item) => item.severity === 'critical' || item.severity === 'warning')
+        .map((item) => ({
+          site: site.name,
+          url: site.url,
+          check: item.check,
+          code: item.code,
+          severity: item.severity,
+          message: item.message,
+        })),
+    )
+    .sort((left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity]);
+}
+
 /** Ranking used to order sites and severities. */
 const SEVERITY_ORDER: Record<Severity, number> = {
   critical: 0,
@@ -550,6 +610,7 @@ function countSeverities(sites: readonly SiteResult[]): Record<Severity, number>
 interface Changes {
   comparedWithPreviousRun: boolean;
   previousRunAt: string | null;
+  sitesCompared: number;
   regressed: { site: string; from: Severity; to: Severity }[];
   improved: { site: string; from: Severity; to: Severity }[];
   newFindings: { site: string; code: string }[];
@@ -571,6 +632,7 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
     return {
       comparedWithPreviousRun: false,
       previousRunAt: null,
+      sitesCompared: 0,
       regressed: [],
       improved: [],
       newFindings: [],
@@ -580,10 +642,19 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
   const regressed: Changes['regressed'] = [];
   const improved: Changes['improved'] = [];
   const newFindings: Changes['newFindings'] = [];
+  let sitesCompared = 0;
 
   for (const site of sites) {
-    const before = previous.sites[site.url];
+    const before = previous.sites[keyOf(site)];
     if (before === undefined) continue;
+
+    // Only like with like. Two runs of the same site that measured different
+    // things are not comparable, and pretending otherwise turns a quick
+    // uptime-only pass into a page of invented regressions — or, run the other
+    // way round, into "improved: critical → ok" for a certificate that still
+    // expires in three days.
+    if (!sameChecks(site, before.checks)) continue;
+    sitesCompared += 1;
 
     const movement = SEVERITY_ORDER[site.severity] - SEVERITY_ORDER[before.severity];
     if (movement < 0) regressed.push({ site: site.name, from: before.severity, to: site.severity });
@@ -596,12 +667,26 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
   }
 
   return {
-    comparedWithPreviousRun: true,
-    previousRunAt: previous.takenAt,
+    // A previous run this one shares no site with is a previous run that cannot
+    // be compared against, whatever its timestamp says.
+    comparedWithPreviousRun: sitesCompared > 0,
+    previousRunAt: sitesCompared > 0 ? previous.takenAt : null,
+    sitesCompared,
     regressed,
     improved,
     newFindings,
   };
+}
+
+/**
+ * @param site This run's result for a site.
+ * @param before The checks the previous run made on it.
+ * @returns Whether both runs measured the same things.
+ * @throws Never.
+ */
+function sameChecks(site: SiteResult, before: readonly CheckName[]): boolean {
+  const now = new Set(site.checks.map((check) => check.check));
+  return now.size === before.length && before.every((check) => now.has(check));
 }
 
 /**
@@ -613,12 +698,29 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
 function snapshotOf(sites: readonly SiteResult[], now: Date): RunSnapshot {
   const record: RunSnapshot['sites'] = {};
   for (const site of sites) {
-    record[site.url] = {
+    record[keyOf(site)] = {
       severity: site.severity,
       codes: site.findings.map((item) => item.code),
+      checks: site.checks.map((check) => check.check),
     };
   }
   return { takenAt: now.toISOString(), sites: record };
+}
+
+/**
+ * Identifies a site across runs.
+ *
+ * The name is part of the key, not just the URL: a portfolio may legitimately
+ * list the same URL twice — a staging entry and a live one, or two clients on
+ * one shared address — and keying on the URL alone would let one site's history
+ * silently overwrite the other's.
+ *
+ * @param site The site.
+ * @returns A stable key.
+ * @throws Never.
+ */
+function keyOf(site: { name: string; url: string }): string {
+  return `${site.name}\u0000${site.url}`;
 }
 
 /**
@@ -659,7 +761,10 @@ function summarise(report: {
 
   const changes = report.changes;
   if (!changes.comparedWithPreviousRun) {
-    lines.push('', 'First run in this session, so there is nothing to compare against yet.');
+    lines.push(
+      '',
+      'Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.',
+    );
   } else if (changes.regressed.length > 0 || changes.improved.length > 0) {
     lines.push('', `Changed since ${changes.previousRunAt ?? 'the previous run'}:`);
     for (const item of changes.regressed) {
