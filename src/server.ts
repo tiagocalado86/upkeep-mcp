@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { SERVER_NAME, SERVER_VERSION } from './lib/constants.js';
 import { registerDomainCheckTool } from './tools/domain-check.js';
 import { registerHealthTool } from './tools/health.js';
+import { registerSeoAuditTool } from './tools/seo-audit.js';
 import { registerSslCheckTool } from './tools/ssl-check.js';
 import { registerUptimeCheckTool } from './tools/uptime-check.js';
 
@@ -22,6 +23,7 @@ export function createServer(): McpServer {
   registerDomainCheckTool(server);
   registerSslCheckTool(server);
   registerUptimeCheckTool(server);
+  registerSeoAuditTool(server);
 
   return server;
 }

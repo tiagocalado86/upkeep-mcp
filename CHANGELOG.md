@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `seo_audit`: title and meta description with their lengths, heading structure,
+  canonical, `lang`, viewport, Open Graph, `hreflang` alternates, images with no
+  `alt` attribute, the state of `robots.txt` and the sitemap, and which internal
+  links are broken. It audits one page and checks that page's internal links; it
+  does not crawl. See `docs/adr/0010-one-page-audit-instead-of-crawl-depth.md`.
+- `robots.txt` parsing and matching to RFC 9309, written here rather than taken
+  from an unmaintained package, with path matching that cannot be made to
+  backtrack by a hostile file. See
+  `docs/adr/0009-own-robots-txt-implementation.md`.
+- HTML parsing with `parse5`, so pages are read the way a browser reads them,
+  broken markup included. See `docs/adr/0008-parse5-with-own-extraction.md`.
+- A structural sitemap check that recognises the commonest failure: an HTML 404
+  page served at the sitemap URL with a 200 status.
+- `getText`, which reads a response body up to a byte limit and reports whether
+  it was cut off, so no remote host decides how much this process allocates.
+
 ## [0.1.0] - 2026-08-31
 
 ### Added

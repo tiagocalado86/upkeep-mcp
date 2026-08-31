@@ -56,6 +56,12 @@ Take `domain_check` for `https://www.shop.example.co.uk/basket`.
 
 `ssl_check` and `uptime_check` follow the same shape.
 
+`seo_audit` adds one step in front of all of them: it reads `robots.txt` and
+obeys it before requesting anything, including before requesting each internal
+link it would otherwise check. A page it is not allowed to read produces a
+report saying so, never a report built from a request that should not have been
+made. An unreadable `robots.txt` is treated as a refusal, per RFC 9309 §2.3.1.
+
 ## Why the pieces are where they are
 
 **`lib/` splits into I/O and pure logic.** `dns.ts`, `tls.ts`, `rdap.ts` and

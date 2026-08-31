@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Ports } from '../../src/lib/ports.js';
 import type { RdapLookup } from '../../src/lib/rdap.js';
+import { EMPTY_ROBOTS, parseRobots, type RobotsFetch } from '../../src/lib/robots.js';
 import type { TlsInspection } from '../../src/lib/tls.js';
 import type {
   CertificateSummary,
@@ -124,6 +125,18 @@ export interface FakeOptions {
     string,
     { status: number; headers?: Record<string, string>; location?: string } | Error
   >;
+  /** Bodies returned by `http.text`, keyed by URL. */
+  documents?: Record<
+    string,
+    | { status: number; body: string; contentType?: string; url?: string; truncated?: boolean }
+    | Error
+  >;
+  /**
+   * A `robots.txt` body, as if served with a 200. The two literals `'absent'`
+   * and `'unreachable'` stand for a host that publishes none and one that
+   * cannot be asked at all.
+   */
+  robots?: string;
   now?: Date;
 }
 
@@ -177,9 +190,45 @@ export function fakePorts(options: FakeOptions = {}): Ports {
           elapsedMs: 12,
         });
       },
+      text: (url) => {
+        const reply = options.documents?.[url];
+        if (reply === undefined) return Promise.reject(new Error(`no fixture for ${url}`));
+        if (reply instanceof Error) return Promise.reject(reply);
+        const contentType = reply.contentType ?? 'text/html';
+        return Promise.resolve({
+          url: reply.url ?? url,
+          status: reply.status,
+          headers: new Headers({ 'content-type': contentType }),
+          contentType,
+          body: reply.body,
+          truncated: reply.truncated ?? false,
+        });
+      },
+    },
+    robots: {
+      forOrigin: (origin) => Promise.resolve(fakeRobots(origin, options.robots)),
     },
     now: () => options.now ?? NOW,
   };
+}
+
+/**
+ * Builds the `robots.txt` answer a test asked for.
+ *
+ * @param origin The origin being asked about.
+ * @param wanted The test's `robots` option. Undefined means the host publishes
+ *   none, which is the case most tests want.
+ * @returns A fetch result.
+ */
+function fakeRobots(origin: string, wanted: string | undefined): RobotsFetch {
+  const url = new URL('/robots.txt', origin).toString();
+  if (wanted === undefined || wanted === 'absent') {
+    return { url, availability: 'absent', status: 404, robots: EMPTY_ROBOTS };
+  }
+  if (wanted === 'unreachable') {
+    return { url, availability: 'unreachable', status: null, robots: EMPTY_ROBOTS };
+  }
+  return { url, availability: 'fetched', status: 200, robots: parseRobots(wanted) };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultPorts } from '../../src/lib/ports.js';
 import { runDomainCheck } from '../../src/tools/domain-check.js';
+import { runSeoAudit } from '../../src/tools/seo-audit.js';
 import { runSslCheck } from '../../src/tools/ssl-check.js';
 import { runUptimeCheck } from '../../src/tools/uptime-check.js';
 import { findingCodes, structured, text } from '../helpers/fake-ports.js';
@@ -132,5 +133,29 @@ describe('uptime_check against a real site', () => {
     expect(report['status']).toBe(200);
     expect(report['https']).toMatchObject({ upgradesToHttps: true });
     expect((report['hsts'] as { present: boolean }).present).toBe(true);
+  });
+});
+
+describe('seo_audit against a real page', () => {
+  it('reads a live page and reports what its markup is missing', async () => {
+    const result = await runSeoAudit({ url: 'https://example.com/' }, ports);
+
+    expect(result.isError).toBeFalsy();
+    expect(structured(result)).toMatchObject({ fetched: true, status: 200 });
+    expect(structured(result)['page']).toMatchObject({ title: 'Example Domain' });
+    expect(findingCodes(result)).toContain('meta_description_missing');
+  });
+
+  it('obeys a robots.txt that forbids it, without requesting the page', async () => {
+    // GitHub's robots.txt disallows unknown crawlers on this path. The check is
+    // that the tool reports the refusal rather than fetching anyway.
+    const result = await runSeoAudit(
+      { url: 'https://github.com/search?q=test', checkLinks: false },
+      ports,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(structured(result)['fetched']).toBe(false);
+    expect(findingCodes(result)).toContain('page_disallowed_by_robots');
   });
 });

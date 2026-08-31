@@ -112,6 +112,7 @@ describe('stdio transport', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'domain_check',
       'health',
+      'seo_audit',
       'ssl_check',
       'uptime_check',
     ]);

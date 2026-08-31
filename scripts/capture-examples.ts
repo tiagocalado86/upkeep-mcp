@@ -10,6 +10,7 @@
 import { writeFileSync } from 'node:fs';
 import { createDefaultPorts } from '../src/lib/ports.js';
 import { runDomainCheck } from '../src/tools/domain-check.js';
+import { runSeoAudit } from '../src/tools/seo-audit.js';
 import { runSslCheck } from '../src/tools/ssl-check.js';
 import { runUptimeCheck } from '../src/tools/uptime-check.js';
 
@@ -68,4 +69,13 @@ writeFileSync(
     await runUptimeCheck({ url: 'http://github.com' }, ports),
   ),
 );
+writeFileSync(
+  'examples/seo-audit.md',
+  render(
+    'seo_audit',
+    '{ "name": "seo_audit", "arguments": { "url": "https://example.com/" } }',
+    await runSeoAudit({ url: 'https://example.com/' }, ports),
+  ),
+);
+
 console.error('captured');

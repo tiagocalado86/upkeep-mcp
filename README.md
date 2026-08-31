@@ -10,8 +10,8 @@ attention this week?**
 
 ## Status
 
-Early development, built in public phase by phase. The three checks that need no
-browser are implemented and useful today.
+Early development, built in public phase by phase. Everything that needs no
+browser is implemented and useful today.
 
 | Tool                  | Purpose                                                                     | Status    |
 | --------------------- | --------------------------------------------------------------------------- | --------- |
@@ -19,7 +19,7 @@ browser are implemented and useful today.
 | `ssl_check`           | Certificate expiry, issuer, chain validity, SAN coverage, TLS version       | Available |
 | `uptime_check`        | HTTP status, response time, redirect chain, HTTPS upgrade, security headers | Available |
 | `health`              | Server name, version, Node.js version, uptime                               | Available |
-| `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links         | Planned   |
+| `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links         | Available |
 | `accessibility_audit` | WCAG violations via axe-core                                                | Planned   |
 | `portfolio_report`    | All of the above across a portfolio, sorted by urgency                      | Planned   |
 
@@ -83,6 +83,36 @@ Input: `url` — a full URL, or a bare domain, which is tried over HTTPS.
 Returns the status code, response time, every hop of the redirect chain, whether
 plain HTTP is upgraded to HTTPS, the HSTS policy, and the security headers worth
 reporting on.
+
+### `seo_audit`
+
+Input: `url` — the page to audit, plus optional `checkLinks` (true by default)
+and `maxLinks` (25 by default).
+
+Returns title and meta description with their lengths, the heading structure,
+canonical, `lang`, viewport, Open Graph, `hreflang` alternates, the images with
+no `alt` attribute, the state of `robots.txt` and the sitemap, and which
+internal links are broken.
+
+`robots.txt` is read **before** anything else is requested and is obeyed — for
+the page itself and for every internal link. A page this crawler is not allowed
+to read is reported as such and is never fetched, and an unreadable `robots.txt`
+is treated as forbidding everything, as RFC 9309 requires.
+
+```
+> Audit the homepage of example.com
+
+https://example.com/ answered 200. Title: "Example Domain".
+1 h1, 0 images without alt, 0 internal links (0 checked, 0 broken).
+Sitemap: the sitemap URL answered 404.
+
+Needs attention:
+- [warning] The page has no meta description, so search engines will write their own summary of it.
+- [info] The page declares no canonical URL, which is how duplicate addresses for the same page get separated.
+- [info] The page has no og:title or no og:image, so it will share poorly on social networks and in messaging apps.
+- [info] There is no sitemap at https://example.com/sitemap.xml: the sitemap URL answered 404.
+- [info] The site publishes no robots.txt. Nothing is blocked, but the sitemap cannot be declared there either.
+```
 
 ## Installation
 
@@ -156,8 +186,15 @@ that does less.
 - **Response time includes connection setup.** It is wall clock to the first
   response headers, covering DNS, TCP and TLS, so it is not a measure of server
   processing time.
-- **`uptime_check` fetches one page, not a site.** Crawling arrives with
-  `seo_audit`.
+- **`seo_audit` audits one page, not a site.** It requests the page's internal
+  links to find broken ones, but it does not crawl: there is no second level.
+  Auditing a site means calling it for the pages that matter.
+- **The sitemap check is structural, not a schema validation.** It establishes
+  that the document exists, declares `<urlset>` or `<sitemapindex>`, and how
+  many `<loc>` entries it holds. It does not validate against the sitemaps.org
+  schema, and it does not open a gzipped sitemap.
+- **Nothing here judges how a page ranks.** `seo_audit` reports what is in the
+  HTML. Rankings depend on things no public endpoint exposes.
 - **Certificates and domains are judged on different clocks.** A registration is
   a warning inside 30 days; a certificate only inside 14. ACME clients renew with
   30 days left, so warning that early would fire on nearly every healthy site.

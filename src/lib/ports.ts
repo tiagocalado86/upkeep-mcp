@@ -2,8 +2,9 @@ import type { DnsRecords } from '../types.js';
 import { createTtlCache } from './cache.js';
 import { LIMITS, TTL } from './defaults.js';
 import { hasDsRecord, resolveRecords } from './dns.js';
-import { httpHop, type HttpHopResult } from './http-client.js';
+import { getText, httpHop, type HttpHopResult, type TextResult } from './http-client.js';
 import { createHostLimiter } from './rate-limit.js';
+import { fetchRobots, type RobotsFetch } from './robots.js';
 import { lookupDomain, type RdapLookup } from './rdap.js';
 import { daysUntil } from './severity.js';
 import { inspectTls, type TlsInspection } from './tls.js';
@@ -40,6 +41,14 @@ export interface TlsProbe {
 export interface HttpProbe {
   /** One hop. */
   hop(url: string, timeoutMs: number, signal?: AbortSignal): Promise<HttpHopResult>;
+  /** A whole document, following redirects, read up to a byte limit. */
+  text(url: string, timeoutMs: number, maxBytes: number): Promise<TextResult>;
+}
+
+/** `robots.txt` lookups. */
+export interface RobotsClient {
+  /** The rules an origin publishes, e.g. for `https://example.com`. */
+  forOrigin(origin: string): Promise<RobotsFetch>;
 }
 
 /** Everything a tool may reach for. */
@@ -48,6 +57,7 @@ export interface Ports {
   rdap: RdapClient;
   tls: TlsProbe;
   http: HttpProbe;
+  robots: RobotsClient;
   /** Injected so a report's timestamps and day counts are deterministic in tests. */
   now(): Date;
 }
@@ -64,6 +74,7 @@ let shared: {
   dsCache: ReturnType<typeof createTtlCache<boolean | null>>;
   rdapCache: ReturnType<typeof createTtlCache<RdapLookup>>;
   tlsCache: ReturnType<typeof createTtlCache<TlsInspection>>;
+  robotsCache: ReturnType<typeof createTtlCache<RobotsFetch>>;
   limiter: ReturnType<typeof createHostLimiter>;
 } | null = null;
 
@@ -77,6 +88,7 @@ function sharedState(): NonNullable<typeof shared> {
     dsCache: createTtlCache<boolean | null>({ ttlMs: TTL.dnsMs }),
     rdapCache: createTtlCache<RdapLookup>({ ttlMs: TTL.rdapMs }),
     tlsCache: createTtlCache<TlsInspection>({ ttlMs: TTL.tlsMs }),
+    robotsCache: createTtlCache<RobotsFetch>({ ttlMs: TTL.robotsMs }),
     limiter: createHostLimiter({
       minIntervalMs: LIMITS.minIntervalMs,
       maxConcurrentPerHost: LIMITS.maxConcurrentPerHost,
@@ -119,7 +131,7 @@ function foundAnything(records: DnsRecords): boolean {
  * @throws Never.
  */
 export function createDefaultPorts(): Ports {
-  const { dnsCache, dsCache, rdapCache, tlsCache, limiter } = sharedState();
+  const { dnsCache, dsCache, rdapCache, tlsCache, robotsCache, limiter } = sharedState();
 
   return {
     dns: {
@@ -163,6 +175,16 @@ export function createDefaultPorts(): Ports {
       // Never cached: caching an uptime check defeats the tool.
       hop: (url, timeoutMs, signal) =>
         limiter.run(new URL(url).host, () => httpHop(url, timeoutMs, signal)),
+      text: (url, timeoutMs, maxBytes) =>
+        limiter.run(new URL(url).host, () => getText(url, timeoutMs, maxBytes)),
+    },
+    robots: {
+      // Cached per origin: an audit consults the rules before every request it
+      // makes, and asking the host each time would be the opposite of polite.
+      forOrigin: (origin) =>
+        robotsCache.fetch(origin, () =>
+          limiter.run(new URL(origin).host, () => fetchRobots(origin)),
+        ),
     },
     now: () => new Date(),
   };

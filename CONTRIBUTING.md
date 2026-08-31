@@ -3,8 +3,9 @@
 Thanks for taking a look. This is a small, opinionated project; the sections
 below cover what you need to work on it without guessing.
 
-> **Status:** Phase 1 is complete: `domain_check`, `ssl_check` and `uptime_check`
-> work and are covered by tests. Phase 2 adds `seo_audit`.
+> **Status:** Phase 2 is complete. `domain_check`, `ssl_check`, `uptime_check`
+> and `seo_audit` work and are covered by tests. Phase 3 adds
+> `portfolio_report`, which aggregates all of them across a portfolio.
 
 ## Ground rules
 
@@ -82,8 +83,11 @@ src/
   lib/
     ports.ts     the I/O boundary — the only way a tool reaches the network
     dns.ts tls.ts rdap.ts http-client.ts    the implementations behind it
+    robots.ts                               RFC 9309 parsing, matching, fetching
     cache.ts rate-limit.ts defaults.ts      caching, pacing, and the numbers
-    domain-name.ts severity.ts http-headers.ts json.ts   pure helpers
+    html.ts sitemap.ts                      reading a page and a sitemap
+    domain-name.ts severity.ts url.ts       pure helpers
+    http-headers.ts json.ts
   types.ts     shared result types
 test/          mirrors src/, with fixtures and fake ports
 ```
