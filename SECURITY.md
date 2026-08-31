@@ -70,8 +70,11 @@ crawl, requests are rate-limited per host, concurrency is bounded, every network
 operation has an explicit timeout, and the `User-Agent` identifies the tool with
 a contact URL.
 
-**It keeps no sensitive state.** Caching is in memory or in a local file with a
-TTL. There is no database and no persistent record of what was checked.
+**It keeps no sensitive state.** Caching is in memory only, with a TTL, and so
+is the comparison with the previous run. Nothing is written to disk: there is no
+database, and no record of what was checked survives the process. See
+[`docs/adr/0005`](docs/adr/0005-in-memory-cache-no-database.md) and
+[`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md).
 
 ## Scope
 
@@ -82,7 +85,9 @@ In scope for a report:
   (SSRF, request smuggling, unbounded redirect following),
 - a crash, hang or resource exhaustion triggered by hostile input or a hostile
   remote host,
-- leaking one user's data into another's results on the public HTTP demo.
+- leaking one user's data into another's results, should a public HTTP demo be
+  running — there is none today, and this line is here so the rule is agreed
+  before the instance exists rather than after.
 
 Out of scope:
 

@@ -36,11 +36,33 @@ describe('the README describes the tools that exist', () => {
     const registered = new Set(Object.keys(await toolNames()));
     const readme = readFileSync('README.md', 'utf8');
 
+    // Read the table as a table, not as loose lines. A row that has drifted
+    // out of the block still looks like a row to a line-based regex — which is
+    // how the flagship tool came to render as literal pipes under a paragraph
+    // while this very assertion passed.
+    const table = tableAfterHeader(readme);
     const available = new Set(
-      [...readme.matchAll(/^\| `(\w+)`\s*\|.*\|\s*Available\s*\|$/gm)].map((match) => match[1]),
+      table
+        .filter((row) => /\|\s*Available\s*\|/.test(row))
+        .map((row) => /^\| `(\w+)`/.exec(row)?.[1] ?? ''),
     );
 
     expect([...available].sort()).toEqual([...registered].sort());
+  });
+
+  it('keeps every table row inside its table', () => {
+    // Markdown ends a table at the first line that is not a row. A stray row
+    // after a paragraph renders as text with pipes in it, which is what a
+    // reviewer sees first and what no formatter complains about.
+    for (const { path, text } of documents()) {
+      const lines = text.split('\n');
+      lines.forEach((line, index) => {
+        if (!/^\|.*\|$/.test(line.trim())) return;
+        const previous = lines[index - 1]?.trim() ?? '';
+        const orphaned = previous !== '' && !/^\|.*\|$/.test(previous);
+        expect(orphaned, `${path}:${String(index + 1)} is a table row outside a table`).toBe(false);
+      });
+    }
   });
 
   it('gives every registered tool a section of its own', () => {
@@ -85,6 +107,25 @@ describe('every link in the documentation points at something', () => {
     }
   });
 });
+
+/**
+ * @param text A markdown document.
+ * @returns The contiguous rows of its first table, header and separator
+ *   excluded.
+ * @throws Never.
+ */
+function tableAfterHeader(text: string): string[] {
+  const lines = text.split('\n');
+  const header = lines.findIndex((line) => /^\| Tool\s+\|/.test(line));
+  if (header === -1) return [];
+
+  const rows: string[] = [];
+  for (const line of lines.slice(header + 2)) {
+    if (!/^\|.*\|$/.test(line.trim())) break;
+    rows.push(line);
+  }
+  return rows;
+}
 
 /**
  * @returns The names of every tool the server registers, read from the server

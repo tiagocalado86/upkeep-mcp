@@ -20,12 +20,12 @@ browser is implemented and useful today.
 | `uptime_check`        | HTTP status, response time, redirect chain, HTTPS upgrade, security headers | Available |
 | `health`              | Server name, version, Node.js version, uptime                               | Available |
 | `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links         | Available |
+| `portfolio_report`    | All of the above across a portfolio, sorted by urgency                      | Available |
 | `accessibility_audit` | WCAG violations via axe-core                                                | Planned   |
 
 It also exposes the `portfolio://sites` resource (the site list, for a client to
 read without spending a tool call) and the `quarterly_report` prompt (turns a
 portfolio run into the report a client actually reads).
-| `portfolio_report` | All of the above across a portfolio, sorted by urgency | Available |
 
 Not published to npm yet — install from source, as below.
 
@@ -139,7 +139,7 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-First run in this session, so there is nothing to compare against yet.
+Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.
 
 Nothing to do: Example Foundation.
 ```
