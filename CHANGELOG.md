@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-31
+
 ### Added
 
 - `domain_check`: registration expiry and registrar over RDAP, DNS records, and
@@ -49,8 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** the minimum supported Node.js version is now 22. Node 20 reached
-  end of life on 2026-04-30, and every certificate and DNS API this release needs
-  sits on that boundary. See `docs/adr/0003-node-22-baseline.md`.
+- The minimum supported Node.js version is 22, not the 20 originally planned.
+  Node 20 reached end of life on 2026-04-30, and every certificate and DNS API
+  this release needs sits on that boundary. See
+  `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/commits/main
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/tiagocalado86/upkeep-mcp/releases/tag/v0.1.0

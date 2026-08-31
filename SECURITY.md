@@ -2,13 +2,14 @@
 
 ## Supported versions
 
-`upkeep-mcp` is in early development and has not had a tagged release yet.
-Until `v0.1.0` ships, only the `main` branch is supported.
+`upkeep-mcp` is in early development. Fixes go to `main` and to the latest
+minor release; older ones are not patched.
 
-| Version       | Supported |
-| ------------- | --------- |
-| `main`        | ✅        |
-| Anything else | ❌        |
+| Version        | Supported |
+| -------------- | --------- |
+| `main`         | ✅        |
+| `0.1.x`        | ✅        |
+| Anything older | ❌        |
 
 ## Reporting a vulnerability
 
