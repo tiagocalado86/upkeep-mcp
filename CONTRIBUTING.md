@@ -3,9 +3,8 @@
 Thanks for taking a look. This is a small, opinionated project; the sections
 below cover what you need to work on it without guessing.
 
-> **Status:** Phase 0 (scaffolding) is complete — the toolchain below works
-> and the server runs, with `health` as its only tool. Phase 1 adds
-> `domain_check`, `ssl_check` and `uptime_check`.
+> **Status:** Phase 1 is complete: `domain_check`, `ssl_check` and `uptime_check`
+> work and are covered by tests. Phase 2 adds `seo_audit`.
 
 ## Ground rules
 
@@ -22,7 +21,7 @@ The full threat model is in [SECURITY.md](SECURITY.md).
 
 ## Setup
 
-You need **Node.js 20 or newer**.
+You need **Node.js 22 or newer**.
 
 ```bash
 git clone git@github.com:tiagocalado86/upkeep-mcp.git
@@ -48,9 +47,20 @@ opening a pull request.
 
 ## Testing
 
-The normal suite never touches the network. Responses are recorded as fixtures
-under `test/` and the `lib/` module doing the I/O is stubbed, which is the whole
-reason tools never make network calls directly (see
+The normal suite never touches the network, in three layers:
+
+1. **Pure functions are tested directly** against recorded payloads under
+   `test/fixtures/`. Most of the awkward real-world cases live here.
+2. **Anything going through `fetch`** uses undici's `MockAgent` with
+   `disableNetConnect()`, so an unintercepted request fails loudly instead of
+   escaping to the network.
+3. **`node:dns` and `node:tls`** are reached only through the `DnsClient` and
+   `TlsProbe` interfaces in `src/lib/ports.ts`; tests pass fakes from
+   `test/helpers/fake-ports.ts`.
+
+Do not mock a Node builtin. That couples a test to the sequence of calls into
+someone else's module instead of to this project's own contract — which is the
+whole reason tools never make network calls directly (see
 [Project layout](#project-layout)).
 
 Integration tests live behind `npm run test:integration` and run against known
@@ -67,23 +77,32 @@ that only answers on `www`.
 ```
 src/
   index.ts     entrypoint, stdio transport
-  http.ts      entrypoint, Streamable HTTP transport
   server.ts    builds the McpServer and registers tools
-  tools/       one file per tool: definition + handler
-  lib/         all I/O — dns, tls, http-client, cache, rate-limit, robots
+  tools/       one file per tool: schemas, findings, human summary
+  lib/
+    ports.ts     the I/O boundary — the only way a tool reaches the network
+    dns.ts tls.ts rdap.ts http-client.ts    the implementations behind it
+    cache.ts rate-limit.ts defaults.ts      caching, pacing, and the numbers
+    domain-name.ts severity.ts http-headers.ts json.ts   pure helpers
   types.ts     shared result types
-test/          mirrors src/, with recorded fixtures
+test/          mirrors src/, with fixtures and fake ports
 ```
 
-The split matters: **no tool performs I/O directly**, it goes through `lib/`.
-That is what makes the tools testable without a network. `server.ts` only
-registers; it holds no logic.
+The split matters: **no tool performs I/O directly**, it goes through the
+interfaces in `lib/ports.ts`. That is not a convention — those interfaces are the
+only thing a tool can see, so the compiler enforces it, and it is what makes the
+tools testable without a network. `server.ts` only registers; it holds no logic.
+
+`src/http.ts`, the Streamable HTTP entrypoint for the public demo, arrives in
+Phase 4. [`docs/architecture.md`](docs/architecture.md) has the full picture.
 
 ## Adding a tool
 
-1. Create `src/tools/<name>.ts` exporting the tool definition and its handler.
-2. Put any new network access in `lib/`, with an explicit timeout. Never call
-   out from the tool file.
+1. Create `src/tools/<name>.ts` exporting a `register<Name>Tool(server, ports)`
+   function and the handler it wraps. Take `ports` as a parameter defaulting to
+   `createDefaultPorts()`, so tests can pass fakes.
+2. Put any new network access behind an interface in `lib/ports.ts`, implemented
+   in `lib/`, with an explicit timeout. Never call out from the tool file.
 3. Define the input schema with Zod v4 (`import * as z from 'zod/v4'`).
 4. Return both human-readable text and structured data.
 5. Catch everything. No exception may cross the MCP boundary — return a

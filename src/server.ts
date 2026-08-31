@@ -1,6 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { SERVER_NAME, SERVER_VERSION } from './lib/constants.js';
+import { registerDomainCheckTool } from './tools/domain-check.js';
 import { registerHealthTool } from './tools/health.js';
+import { registerSslCheckTool } from './tools/ssl-check.js';
+import { registerUptimeCheckTool } from './tools/uptime-check.js';
 
 /**
  * Builds a fully configured server instance with every tool registered.
@@ -16,6 +19,9 @@ export function createServer(): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
   registerHealthTool(server);
+  registerDomainCheckTool(server);
+  registerSslCheckTool(server);
+  registerUptimeCheckTool(server);
 
   return server;
 }

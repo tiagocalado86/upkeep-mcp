@@ -1,0 +1,76 @@
+{
+  "objectClassName": "domain",
+  "ldhName": "EXAMPLE.COM",
+  "status": [
+    "client delete prohibited",
+    "client transfer prohibited",
+    "client update prohibited"
+  ],
+  "events": [
+    {
+      "eventAction": "registration",
+      "eventDate": "1995-08-14T04:00:00Z"
+    },
+    {
+      "eventAction": "expiration",
+      "eventDate": "2027-08-13T04:00:00Z"
+    },
+    {
+      "eventAction": "last changed",
+      "eventDate": "2026-08-14T08:01:43Z"
+    },
+    {
+      "eventAction": "last update of RDAP database",
+      "eventDate": "2026-08-31T09:50:52Z"
+    }
+  ],
+  "entities": [
+    {
+      "roles": [
+        "registrar"
+      ],
+      "publicIds": [
+        {
+          "type": "IANA Registrar ID",
+          "identifier": "376"
+        }
+      ],
+      "vcardArray": [
+        "vcard",
+        [
+          [
+            "version",
+            {},
+            "text",
+            "4.0"
+          ],
+          [
+            "fn",
+            {},
+            "text",
+            "RESERVED-Internet Assigned Numbers Authority"
+          ]
+        ]
+      ]
+    }
+  ],
+  "nameservers": [
+    {
+      "ldhName": "ELLIOTT.NS.CLOUDFLARE.COM"
+    },
+    {
+      "ldhName": "HERA.NS.CLOUDFLARE.COM"
+    }
+  ],
+  "secureDNS": {
+    "delegationSigned": true,
+    "dsData": [
+      {
+        "keyTag": 2371,
+        "algorithm": 13,
+        "digestType": 2,
+        "digest": "C988EC423E3880EB8DD8A46FE06CA230EE23F35B578D64E78B29C3E1C83D245A"
+      }
+    ]
+  }
+}

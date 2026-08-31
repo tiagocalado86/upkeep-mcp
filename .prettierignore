@@ -2,3 +2,9 @@ dist/
 coverage/
 node_modules/
 package-lock.json
+
+# Captured verbatim from real responses. Reformatting them would make the next
+# regeneration look like a change, and a fixture should match what came off the
+# wire.
+examples/
+test/fixtures/

@@ -33,7 +33,7 @@ repository or in its git history.
 
 ## Stack
 
-- Node.js 20+, TypeScript `strict`, ESM. Relative imports carry the `.js`
+- Node.js 22+, TypeScript `strict`, ESM. Relative imports carry the `.js`
   extension (`NodeNext` resolution).
 - `@modelcontextprotocol/server` v2. **Not** `@modelcontextprotocol/sdk` (v1) —
   the API differs.

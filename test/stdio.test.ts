@@ -105,14 +105,57 @@ describe('stdio transport', () => {
     });
   });
 
-  it('advertises the health tool with a description and an output schema', async () => {
+  it('advertises every tool', async () => {
     const { result } = await client.request('tools/list');
-    const { tools } = result as { tools: { name: string; description?: string }[] };
-    const health = tools.find((tool) => tool.name === 'health');
+    const { tools } = result as { tools: { name: string }[] };
 
-    expect(health).toBeDefined();
-    expect(health?.description ?? '').not.toBe('');
-    expect(result).toMatchObject({ tools: expect.any(Array) as unknown[] });
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'domain_check',
+      'health',
+      'ssl_check',
+      'uptime_check',
+    ]);
+  });
+
+  it('gives every tool and every input field a description', async () => {
+    // In an MCP server these strings are what the model reads to decide when and
+    // how to call a tool, so an empty one is a defect, not a cosmetic gap.
+    const { result } = await client.request('tools/list');
+    const { tools } = result as {
+      tools: {
+        name: string;
+        description?: string;
+        inputSchema?: { properties?: Record<string, { description?: string }> };
+      }[];
+    };
+
+    for (const tool of tools) {
+      expect(tool.description ?? '', `${tool.name} has no description`).not.toBe('');
+      for (const [field, schema] of Object.entries(tool.inputSchema?.properties ?? {})) {
+        expect(schema.description ?? '', `${tool.name}.${field} has no description`).not.toBe('');
+      }
+    }
+  });
+
+  it('validates input and rejects a call with the wrong argument type', async () => {
+    const response = await client.request('tools/call', {
+      name: 'domain_check',
+      arguments: { domain: 42 },
+    });
+
+    expect(response.error ?? (response.result as { isError?: boolean }).isError).toBeTruthy();
+  });
+
+  it('returns a structured error rather than crashing on unusable input', async () => {
+    const { result } = await client.request('tools/call', {
+      name: 'domain_check',
+      arguments: { domain: 'not a domain' },
+    });
+
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    // The connection must survive it.
+    const { result: after } = await client.request('tools/call', { name: 'health', arguments: {} });
+    expect((after as { isError?: boolean }).isError).toBeFalsy();
   });
 
   it('answers a health call with text and structured content', async () => {

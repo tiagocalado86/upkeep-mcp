@@ -19,8 +19,8 @@ jobs:
       fail-fast: false
       matrix:
         # The lower bound is the version declared in `engines`; the upper bound
-        # is current LTS. Both are supported, so both are tested.
-        node-version: ['20.x', '22.x']
+        # is current Active LTS. Both are supported, so both are tested.
+        node-version: ['22.x', '24.x']
 
     steps:
       - uses: actions/checkout@v4
