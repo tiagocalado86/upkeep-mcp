@@ -77,12 +77,16 @@ export function worstSeverity(findings: readonly Finding[]): Severity {
  * contract rather than an accident of the order things happened to be detected
  * in. `unknown` sorts below `warning` here as it does everywhere else.
  *
+ * Generic over the finding type, so a caller that has attached its own fields —
+ * `portfolio_report` tags each finding with the check that produced it — gets
+ * them back rather than having to assert them back on.
+ *
  * @param findings Findings to order. Not mutated.
  * @returns A new array, worst first. Ties keep their original order, so two
  *   findings of equal severity still read in the order they were found.
  * @throws Never.
  */
-export function sortFindings(findings: readonly Finding[]): Finding[] {
+export function sortFindings<T extends Finding>(findings: readonly T[]): T[] {
   return [...findings].sort((left, right) => RANK[right.severity] - RANK[left.severity]);
 }
 

@@ -75,6 +75,31 @@ export interface Finding {
   message: string;
 }
 
+/**
+ * One check's outcome, reduced to what a portfolio report aggregates.
+ *
+ * Deliberately narrow. A portfolio of twenty sites running four checks each
+ * would carry four full reports per site if this were the whole thing, and a
+ * report nobody can read is not a report. What ranks a portfolio is the
+ * severity, the findings and how many days are left on the clock.
+ */
+export interface CheckSummary {
+  /** The worst severity this check found. */
+  severity: Severity;
+  /** What the check wants attention for. */
+  findings: Finding[];
+  /**
+   * Days until the thing this check watches expires, or `null` when it watches
+   * nothing that expires — an uptime check has no clock.
+   */
+  daysUntilExpiry: number | null;
+  /** The first line of the check's own summary, so the prose is written once. */
+  headline: string;
+}
+
+/** A check that either produced a summary or failed outright. */
+export type CheckOutcome = { ok: true; summary: CheckSummary } | { ok: false; error: ToolError };
+
 /** Liveness report returned by the `health` tool. */
 export interface HealthReport {
   /** Always `'ok'`. If the server can answer at all, it is healthy. */

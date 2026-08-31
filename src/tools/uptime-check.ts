@@ -12,9 +12,9 @@ import type { HttpHopResult } from '../lib/http-client.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
-import { fail, guard, succeed } from '../lib/tool-result.js';
+import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
 import { normaliseUrl } from '../lib/url.js';
-import type { Finding, HttpHop } from '../types.js';
+import type { CheckOutcome, Finding, HttpHop } from '../types.js';
 
 const inputSchema = z.object({
   url: z
@@ -122,16 +122,20 @@ const outputSchema = z.object({
 });
 
 /**
- * Runs an uptime check.
+ * Gathers everything an uptime check reports.
+ *
+ * Separate from {@link runUptimeCheck} so that `portfolio_report` can have the
+ * report itself rather than reading it back out of an MCP result.
  *
  * @param input The validated tool input.
  * @param ports The I/O boundary.
- * @returns An MCP result. A server that never answers is a genuine failure.
+ * @returns The report, or why none could be produced. A server that never
+ *   answers is a genuine failure.
  * @throws Never.
  */
-export async function runUptimeCheck(input: Input, ports: Ports): Promise<CallToolResult> {
+async function buildReport(input: Input, ports: Ports) {
   const start = normaliseUrl(input.url);
-  if (start === null) return fail('invalid_input', `"${input.url}" is not a usable URL`);
+  if (start === null) return buildFailure('invalid_input', `"${input.url}" is not a usable URL`);
 
   const now = ports.now();
   let chain: ChainResult;
@@ -139,8 +143,8 @@ export async function runUptimeCheck(input: Input, ports: Ports): Promise<CallTo
     chain = await followChain(start.toString(), ports);
   } catch (cause) {
     return cause instanceof CheckError
-      ? fail(cause.code, cause.message)
-      : fail('network', `could not reach ${start.toString()}`);
+      ? buildFailure(cause.code, cause.message)
+      : buildFailure('network', `could not reach ${start.toString()}`);
   }
 
   const final = chain.hops.at(-1);
@@ -186,7 +190,46 @@ export async function runUptimeCheck(input: Input, ports: Ports): Promise<CallTo
     securityHeaders,
   };
 
-  return succeed(summarise(report), report);
+  return { ok: true as const, report };
+}
+
+/**
+ * Runs an uptime check.
+ *
+ * @param input The validated tool input.
+ * @param ports The I/O boundary.
+ * @returns An MCP result.
+ * @throws Never.
+ */
+export async function runUptimeCheck(input: Input, ports: Ports): Promise<CallToolResult> {
+  const outcome = await buildReport(input, ports);
+  return outcome.ok
+    ? succeed(summarise(outcome.report), outcome.report)
+    : fail(outcome.error.code, outcome.error.message);
+}
+
+/**
+ * Runs an uptime check for `portfolio_report`.
+ *
+ * @param url The page to request.
+ * @param ports The I/O boundary.
+ * @returns The outcome, reduced to what a portfolio aggregates. Nothing here
+ *   expires, so the day count is always null.
+ * @throws Never.
+ */
+export async function checkUptimeForPortfolio(url: string, ports: Ports): Promise<CheckOutcome> {
+  const outcome = await buildReport({ url }, ports);
+  if (!outcome.ok) return outcome;
+
+  return {
+    ok: true,
+    summary: {
+      severity: outcome.report.severity,
+      findings: outcome.report.findings,
+      daysUntilExpiry: null,
+      headline: headlineOf(summarise(outcome.report)),
+    },
+  };
 }
 
 /**

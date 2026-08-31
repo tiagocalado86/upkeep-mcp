@@ -6,8 +6,14 @@ import { CheckError } from '../lib/errors.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { expirySeverity, finding, sortFindings, worstSeverity } from '../lib/severity.js';
-import { fail, guard, succeed } from '../lib/tool-result.js';
-import type { DnsRecords, DnssecStatus, Finding, RdapRegistration } from '../types.js';
+import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
+import type {
+  CheckOutcome,
+  DnsRecords,
+  DnssecStatus,
+  Finding,
+  RdapRegistration,
+} from '../types.js';
 
 const inputSchema = z.object({
   domain: z
@@ -119,22 +125,34 @@ const outputSchema = z.object({
 });
 
 /**
- * Runs a domain check.
+ * Gathers everything a domain check reports.
  *
  * Registration and DNS are gathered independently and degrade independently: a
  * registry that is down does not hide the DNS records, and a domain that no
  * longer resolves still reports why — which is usually that it expired.
  *
+ * Separate from {@link runDomainCheck} so that `portfolio_report` can have the
+ * report itself rather than having to read it back out of an MCP result.
+ *
  * @param input The validated tool input.
  * @param ports The I/O boundary.
- * @returns An MCP result, using `isError` only when nothing at all could be learned.
+ * @param warnDays Days before expiry at which to warn. Sites carry their own
+ *   value in the portfolio file; the default is the project-wide one.
+ * @returns The report, or why none could be produced.
  * @throws Never.
  */
-export async function runDomainCheck(input: Input, ports: Ports): Promise<CallToolResult> {
+async function buildReport(
+  input: Input,
+  ports: Ports,
+  warnDays: number = DOMAIN_EXPIRY_WARNING_DAYS,
+) {
   const target = parseTarget(input.domain);
-  if (!target.ok) return fail('invalid_input', target.reason);
+  if (!target.ok) return buildFailure('invalid_input', target.reason);
   if (target.isIp) {
-    return fail('invalid_input', 'an IP address has no domain registration; pass a domain name');
+    return buildFailure(
+      'invalid_input',
+      'an IP address has no domain registration; pass a domain name',
+    );
   }
 
   const registrable = target.registrable ?? target.ascii;
@@ -149,18 +167,15 @@ export async function runDomainCheck(input: Input, ports: Ports): Promise<CallTo
   if (rdapResult.status === 'rejected' && dnsResult.status === 'rejected') {
     const error = rdapResult.reason as unknown;
     return error instanceof CheckError
-      ? fail(error.code, error.message)
-      : fail('network', `neither the registry nor DNS could be reached for ${registrable}`);
+      ? buildFailure(error.code, error.message)
+      : buildFailure('network', `neither the registry nor DNS could be reached for ${registrable}`);
   }
 
   const { registration, lookupFailed } = readRegistration(rdapResult, registrable, findings);
   const dns = readDns(dnsResult, registrable, findings);
   const dnssec = await readDnssec(rdapResult, registrable, ports);
 
-  const registrationSeverity = expirySeverity(
-    registration.daysUntilExpiry,
-    DOMAIN_EXPIRY_WARNING_DAYS,
-  );
+  const registrationSeverity = expirySeverity(registration.daysUntilExpiry, warnDays);
   collectRegistrationFindings(registration, registrationSeverity, lookupFailed, findings);
   collectDnsFindings(dns, findings);
   if (dnssec.delegationSigned === false) {
@@ -185,7 +200,50 @@ export async function runDomainCheck(input: Input, ports: Ports): Promise<CallTo
     dnssec,
   };
 
-  return succeed(summarise(report), report);
+  return { ok: true as const, report };
+}
+
+/**
+ * Runs a domain check.
+ *
+ * @param input The validated tool input.
+ * @param ports The I/O boundary.
+ * @returns An MCP result, using `isError` only when nothing at all could be learned.
+ * @throws Never.
+ */
+export async function runDomainCheck(input: Input, ports: Ports): Promise<CallToolResult> {
+  const outcome = await buildReport(input, ports);
+  return outcome.ok
+    ? succeed(summarise(outcome.report), outcome.report)
+    : fail(outcome.error.code, outcome.error.message);
+}
+
+/**
+ * Runs a domain check for `portfolio_report`.
+ *
+ * @param domain The registrable domain to check.
+ * @param ports The I/O boundary.
+ * @param warnDays This site's expiry warning window.
+ * @returns The outcome, reduced to what a portfolio aggregates.
+ * @throws Never.
+ */
+export async function checkDomainForPortfolio(
+  domain: string,
+  ports: Ports,
+  warnDays: number,
+): Promise<CheckOutcome> {
+  const outcome = await buildReport({ domain }, ports, warnDays);
+  if (!outcome.ok) return outcome;
+
+  return {
+    ok: true,
+    summary: {
+      severity: outcome.report.severity,
+      findings: outcome.report.findings,
+      daysUntilExpiry: outcome.report.registration.daysUntilExpiry,
+      headline: headlineOf(summarise(outcome.report)),
+    },
+  };
 }
 
 /**

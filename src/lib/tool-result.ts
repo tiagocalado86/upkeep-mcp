@@ -45,6 +45,36 @@ export function fail(code: ToolErrorCode, message: string): CallToolResult {
 }
 
 /**
+ * Builds the failure half of a check's internal result.
+ *
+ * Tools split "gather the report" from "render an MCP result" so that
+ * `portfolio_report` can have the report itself rather than reading it back out
+ * of a `CallToolResult`. This is the shape the gathering half fails with.
+ *
+ * @param code Category of failure. See {@link ToolErrorCode}.
+ * @param message Actionable explanation naming what failed and against what.
+ * @returns A failed build.
+ * @throws Never.
+ */
+export function buildFailure(
+  code: ToolErrorCode,
+  message: string,
+): { ok: false; error: ToolError } {
+  return { ok: false, error: { code, message } };
+}
+
+/**
+ * @param summary A tool's whole human-readable summary.
+ * @returns Its first line, which every tool writes to stand on its own. Reusing
+ *   it in a portfolio report is what keeps one site's line from being written
+ *   twice in two voices.
+ * @throws Never.
+ */
+export function headlineOf(summary: string): string {
+  return summary.split('\n')[0] ?? '';
+}
+
+/**
  * Converts an unknown thrown value into a {@link ToolError}.
  *
  * Anything can be thrown in JavaScript, including values that are not `Error`

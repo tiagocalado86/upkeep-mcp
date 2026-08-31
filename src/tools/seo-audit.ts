@@ -3,14 +3,19 @@ import * as z from 'zod/v4';
 import { LIMITS, TIMEOUTS } from '../lib/defaults.js';
 import { extractPage, type PageContent } from '../lib/html.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
-import { isAllowed, selectGroup, type RobotsFetch } from '../lib/robots.js';
+import {
+  isAllowed,
+  selectGroup,
+  type RobotsAvailability,
+  type RobotsFetch,
+} from '../lib/robots.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
 import { readSitemap, type SitemapReading } from '../lib/sitemap.js';
-import { fail, guard, succeed } from '../lib/tool-result.js';
+import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
 import { normaliseUrl } from '../lib/url.js';
 import { SERVER_NAME } from '../lib/constants.js';
-import type { Finding } from '../types.js';
+import type { CheckOutcome, Finding, Severity } from '../types.js';
 
 /**
  * Where a title stops being reliably shown in a result listing.
@@ -161,8 +166,34 @@ const outputSchema = z.object({
     .describe('The sitemap declared in robots.txt, or /sitemap.xml when none is declared.'),
 });
 
+/** What robots.txt said, as reported. */
+interface RobotsSummary {
+  url: string;
+  availability: RobotsAvailability;
+  allowsThisPage: boolean;
+  crawlDelaySeconds: number | null;
+  sitemaps: string[];
+}
+
+/** The whole audit, as reported. */
+interface SeoReport {
+  url: string;
+  finalUrl: string | null;
+  checkedAt: string;
+  severity: Severity;
+  findings: Finding[];
+  fetched: boolean;
+  status: number | null;
+  contentType: string | null;
+  truncated: boolean;
+  robots: RobotsSummary;
+  page: PageReport;
+  links: LinkReport;
+  sitemap: SitemapReport;
+}
+
 /**
- * Runs a technical SEO audit of one page.
+ * Gathers everything a technical SEO audit reports.
  *
  * `robots.txt` is read before anything else is requested, and its verdict is
  * obeyed — including for every internal link the audit would otherwise check.
@@ -170,15 +201,19 @@ const outputSchema = z.object({
  * read produces a report saying exactly that rather than a report built from a
  * request that should never have been made.
  *
+ * Separate from {@link runSeoAudit} so that `portfolio_report` can have the
+ * report itself rather than reading it back out of an MCP result. It carries
+ * its own text, because the report for a page that was never fetched does not
+ * read like the report for one that was.
+ *
  * @param input The validated tool input.
  * @param ports The I/O boundary.
- * @returns An MCP result. Only an unusable URL is an error; everything else is
- *   a report with findings.
+ * @returns The report and its summary text, or why none could be produced.
  * @throws Never.
  */
-export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolResult> {
+async function buildReport(input: Input, ports: Ports) {
   const target = normaliseUrl(input.url);
-  if (target === null) return fail('invalid_input', `"${input.url}" is not a usable URL`);
+  if (target === null) return buildFailure('invalid_input', `"${input.url}" is not a usable URL`);
 
   const now = ports.now();
   const origin = target.origin;
@@ -197,9 +232,13 @@ export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolR
   };
 
   if (!mayCrawl) {
-    return succeed(
-      ...blocked(target.toString(), now, robots, robotsFetch.availability === 'unreachable'),
+    const [text, report] = blocked(
+      target.toString(),
+      now,
+      robots,
+      robotsFetch.availability === 'unreachable',
     );
+    return { ok: true as const, report, text };
   }
 
   const document = await ports.http
@@ -207,7 +246,7 @@ export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolR
     .catch((cause: unknown) => cause as Error);
 
   if (document instanceof Error) {
-    return fail('network', document.message);
+    return buildFailure('network', document.message);
   }
 
   const isHtml = document.contentType === null || document.contentType.includes('html');
@@ -219,7 +258,7 @@ export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolR
     collectFindings({ document, isHtml, page, links, sitemap, robots }),
   );
 
-  const report = {
+  const report: SeoReport = {
     url: target.toString(),
     finalUrl: document.url,
     checkedAt: now.toISOString(),
@@ -235,7 +274,51 @@ export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolR
     sitemap,
   };
 
-  return succeed(summarise(report), report);
+  return { ok: true as const, report, text: summarise(report) };
+}
+
+/**
+ * Runs a technical SEO audit of one page.
+ *
+ * @param input The validated tool input.
+ * @param ports The I/O boundary.
+ * @returns An MCP result. Only an unusable URL or an unreachable page is an
+ *   error; everything else is a report with findings.
+ * @throws Never.
+ */
+export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolResult> {
+  const outcome = await buildReport(input, ports);
+  return outcome.ok
+    ? succeed(outcome.text, outcome.report)
+    : fail(outcome.error.code, outcome.error.message);
+}
+
+/**
+ * Runs an SEO audit for `portfolio_report`.
+ *
+ * Link checking is left on: broken links are one of the two things a client
+ * notices without being told, and a portfolio report that skipped them to save
+ * time would be quietly less useful than the tool it aggregates.
+ *
+ * @param url The page to audit.
+ * @param ports The I/O boundary.
+ * @returns The outcome, reduced to what a portfolio aggregates. Nothing here
+ *   expires, so the day count is always null.
+ * @throws Never.
+ */
+export async function checkSeoForPortfolio(url: string, ports: Ports): Promise<CheckOutcome> {
+  const outcome = await buildReport({ url }, ports);
+  if (!outcome.ok) return outcome;
+
+  return {
+    ok: true,
+    summary: {
+      severity: outcome.report.severity,
+      findings: outcome.report.findings,
+      daysUntilExpiry: null,
+      headline: headlineOf(outcome.text),
+    },
+  };
 }
 
 /**
@@ -440,7 +523,7 @@ function collectFindings(inputs: {
   page: PageContent;
   links: LinkReport;
   sitemap: SitemapReport;
-  robots: { availability: string; sitemaps: string[] };
+  robots: RobotsSummary;
 }): Finding[] {
   const findings: Finding[] = [];
   const { document, isHtml, page, links, sitemap } = inputs;
@@ -686,15 +769,9 @@ function collectHeadingFindings(page: PageContent, findings: Finding[]): void {
 function blocked(
   url: string,
   now: Date,
-  robots: {
-    url: string;
-    availability: string;
-    allowsThisPage: boolean;
-    crawlDelaySeconds: number | null;
-    sitemaps: string[];
-  },
+  robots: RobotsSummary,
   unreachable: boolean,
-): [string, object] {
+): [string, SeoReport] {
   const reason = unreachable
     ? finding(
         'robots_txt_unreachable',
@@ -707,7 +784,7 @@ function blocked(
         `${robots.url} forbids this crawler from requesting this page. On a page meant to be found, that rule is itself the problem.`,
       );
 
-  const report = {
+  const report: SeoReport = {
     url,
     finalUrl: null,
     checkedAt: now.toISOString(),

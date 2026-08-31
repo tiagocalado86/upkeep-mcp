@@ -13,8 +13,8 @@ import {
   worstSeverity,
 } from '../lib/severity.js';
 import type { TlsInspection } from '../lib/tls.js';
-import { fail, guard, succeed } from '../lib/tool-result.js';
-import type { Finding } from '../types.js';
+import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
+import type { CheckOutcome, Finding } from '../types.js';
 
 /**
  * TLS versions still considered acceptable for a client-facing site.
@@ -128,17 +128,25 @@ const outputSchema = z.object({
 });
 
 /**
- * Runs an SSL check.
+ * Gathers everything an SSL check reports.
+ *
+ * Separate from {@link runSslCheck} so that `portfolio_report` can have the
+ * report itself rather than reading it back out of an MCP result.
  *
  * @param input The validated tool input.
  * @param ports The I/O boundary.
- * @returns An MCP result. A handshake that cannot be completed is a genuine
- *   failure — there is nothing to report without one.
+ * @param warnDays Days before expiry at which to warn.
+ * @returns The report, or why none could be produced. A handshake that cannot
+ *   be completed is a genuine failure — there is nothing to report without one.
  * @throws Never.
  */
-export async function runSslCheck(input: Input, ports: Ports): Promise<CallToolResult> {
+async function buildReport(
+  input: Input,
+  ports: Ports,
+  warnDays: number = CERT_EXPIRY_WARNING_DAYS,
+) {
   const target = parseTarget(input.domain);
-  if (!target.ok) return fail('invalid_input', target.reason);
+  if (!target.ok) return buildFailure('invalid_input', target.reason);
 
   const port = input.port ?? 443;
   const now = ports.now();
@@ -156,15 +164,18 @@ export async function runSslCheck(input: Input, ports: Ports): Promise<CallToolR
   if (tlsResult.status === 'rejected') {
     const error = tlsResult.reason as unknown;
     return error instanceof CheckError
-      ? fail(error.code, error.message)
-      : fail('network', `could not complete a TLS handshake with ${target.ascii}:${String(port)}`);
+      ? buildFailure(error.code, error.message)
+      : buildFailure(
+          'network',
+          `could not complete a TLS handshake with ${target.ascii}:${String(port)}`,
+        );
   }
 
   const inspection = tlsResult.value;
   const wwwResolves = dnsResult.status === 'fulfilled' ? dnsResult.value.wwwResolves : false;
   const leaf = inspection.chain.leaf;
   const daysUntilExpiry = daysUntil(leaf?.validTo ?? null, now);
-  const severity = expirySeverity(daysUntilExpiry, CERT_EXPIRY_WARNING_DAYS);
+  const severity = expirySeverity(daysUntilExpiry, warnDays);
 
   const coverage = {
     subjectAltName: inspection.subjectAltName,
@@ -212,7 +223,50 @@ export async function runSslCheck(input: Input, ports: Ports): Promise<CallToolR
     tls: { protocol: inspection.protocol, cipher: inspection.cipher, alpn: inspection.alpn },
   };
 
-  return succeed(summarise(result), result);
+  return { ok: true as const, report: result };
+}
+
+/**
+ * Runs an SSL check.
+ *
+ * @param input The validated tool input.
+ * @param ports The I/O boundary.
+ * @returns An MCP result.
+ * @throws Never.
+ */
+export async function runSslCheck(input: Input, ports: Ports): Promise<CallToolResult> {
+  const outcome = await buildReport(input, ports);
+  return outcome.ok
+    ? succeed(summarise(outcome.report), outcome.report)
+    : fail(outcome.error.code, outcome.error.message);
+}
+
+/**
+ * Runs an SSL check for `portfolio_report`.
+ *
+ * @param host The host whose certificate to inspect.
+ * @param ports The I/O boundary.
+ * @param warnDays This site's certificate warning window.
+ * @returns The outcome, reduced to what a portfolio aggregates.
+ * @throws Never.
+ */
+export async function checkSslForPortfolio(
+  host: string,
+  ports: Ports,
+  warnDays: number,
+): Promise<CheckOutcome> {
+  const outcome = await buildReport({ domain: host }, ports, warnDays);
+  if (!outcome.ok) return outcome;
+
+  return {
+    ok: true,
+    summary: {
+      severity: outcome.report.severity,
+      findings: outcome.report.findings,
+      daysUntilExpiry: outcome.report.daysUntilExpiry,
+      headline: headlineOf(summarise(outcome.report)),
+    },
+  };
 }
 
 /**
