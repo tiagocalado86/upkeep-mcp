@@ -227,6 +227,10 @@ that does less.
   that the document exists, declares `<urlset>` or `<sitemapindex>`, and how
   many `<loc>` entries it holds. It does not validate against the sitemaps.org
   schema, and it does not open a gzipped sitemap.
+- **A page nested thousands of levels deep is refused, not audited.** HTML
+  parsing costs roughly the square of the nesting depth, so a document built to
+  be absurd would block the server for minutes. `seo_audit` measures the depth
+  first and reports the refusal.
 - **Nothing here judges how a page ranks.** `seo_audit` reports what is in the
   HTML. Rankings depend on things no public endpoint exposes.
 - **"What changed since last time" lasts as long as the server process.** The

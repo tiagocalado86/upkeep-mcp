@@ -81,6 +81,13 @@ const outputSchema = z.object({
     })
     .describe('What the registry publishes about this registration.'),
 
+  dnsResolved: z
+    .boolean()
+    .describe(
+      'Whether the DNS lookup answered at all. When false every field under "dns" is empty ' +
+        'because nothing could be read, not because the domain has no records.',
+    ),
+
   dns: z
     .object({
       apexResolves: z.boolean().describe('Whether the domain itself has an address record.'),
@@ -172,12 +179,13 @@ async function buildReport(
   }
 
   const { registration, lookupFailed } = readRegistration(rdapResult, registrable, findings);
+  const dnsResolved = dnsResult.status === 'fulfilled';
   const dns = readDns(dnsResult, registrable, findings);
   const dnssec = await readDnssec(rdapResult, registrable, ports);
 
   const registrationSeverity = expirySeverity(registration.daysUntilExpiry, warnDays);
   collectRegistrationFindings(registration, registrationSeverity, lookupFailed, findings);
-  collectDnsFindings(dns, findings);
+  if (dnsResolved) collectDnsFindings(dns, findings);
   if (dnssec.delegationSigned === false) {
     findings.push(
       finding(
@@ -197,6 +205,7 @@ async function buildReport(
     findings: sortFindings(findings),
     registration: { ...registration, expirySeverity: registrationSeverity },
     dns,
+    dnsResolved,
     dnssec,
   };
 
@@ -467,6 +476,12 @@ function collectRegistrationFindings(
 /**
  * Appends findings about how the domain resolves.
  *
+ * Only ever called when the lookup actually answered. The empty records that
+ * stand in for a failed lookup are indistinguishable from a domain that
+ * resolves to nothing, and reading them as fact is how a DNS timeout came to be
+ * reported as "The domain does not resolve at all" — critical, and beside a
+ * warning saying the lookup had failed.
+ *
  * @param dns The records.
  * @param findings Collector, appended to in place.
  * @throws Never.
@@ -500,6 +515,7 @@ function summarise(report: {
   registrableDomain: string;
   registration: RdapRegistration;
   dns: DnsRecords;
+  dnsResolved: boolean;
   dnssec: DnssecStatus;
   findings: Finding[];
 }): string {
@@ -518,8 +534,10 @@ function summarise(report: {
   if (registration.registrar !== null) lines.push(`Registrar: ${registration.registrar}.`);
   if (dns.ns.length > 0) lines.push(`Nameservers: ${dns.ns.join(', ')}.`);
   lines.push(
-    `Resolves: apex ${dns.apexResolves ? 'yes' : 'no'}, www ${dns.wwwResolves ? 'yes' : 'no'}. ` +
-      `DNSSEC: ${describeDnssec(dnssec)}.`,
+    report.dnsResolved
+      ? `Resolves: apex ${dns.apexResolves ? 'yes' : 'no'}, www ${dns.wwwResolves ? 'yes' : 'no'}. ` +
+          `DNSSEC: ${describeDnssec(dnssec)}.`
+      : `Resolves: not established, the DNS lookup failed. DNSSEC: ${describeDnssec(dnssec)}.`,
   );
 
   if (report.findings.length > 0) {

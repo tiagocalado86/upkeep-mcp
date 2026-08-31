@@ -328,4 +328,66 @@ describe('runSeoAudit', () => {
     expect(findingCodes(missing)).not.toContain('sitemap_unusable');
     expect(structured(missing)['severity']).toBe('info');
   });
+
+  it('resolves a sitemap declared with a relative path, as real files write it', async () => {
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [SITEMAP_URL]: { status: 200, body: SITEMAP },
+        },
+        robots: 'User-agent: *\nSitemap: /sitemap.xml',
+      }),
+    );
+
+    expect(structured(result)['sitemap']).toMatchObject({ url: SITEMAP_URL, entryCount: 2 });
+  });
+
+  it('says a sitemap was cut off rather than reporting a partial count as the total', async () => {
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [SITEMAP_URL]: { status: 200, body: SITEMAP, truncated: true },
+        },
+      }),
+    );
+
+    expect(structured(result)['sitemap']).toMatchObject({ truncated: true, entryCount: 2 });
+    expect(findingCodes(result)).toContain('sitemap_truncated');
+  });
+
+  it('does not blame the link limit when link checking was switched off', async () => {
+    const result = await runSeoAudit(
+      { url: PAGE_URL, checkLinks: false },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml('<h1>Hi</h1><a href="/about">About</a>') },
+          [SITEMAP_URL]: { status: 200, body: SITEMAP },
+        },
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('links_not_checked');
+    expect(findingCodes(result)).not.toContain('links_unchecked');
+    expect(text(result)).toContain('switched off');
+  });
+
+  it('refuses to parse a page built to hang the parser, and says so', async () => {
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: '<div>'.repeat(50_000) },
+          [SITEMAP_URL]: { status: 200, body: SITEMAP },
+        },
+      }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(findingCodes(result)).toEqual(['document_too_deeply_nested']);
+    expect(structured(result)['severity']).toBe('warning');
+  }, 10_000);
 });

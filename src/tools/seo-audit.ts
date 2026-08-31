@@ -1,7 +1,7 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { LIMITS, TIMEOUTS } from '../lib/defaults.js';
-import { extractPage, type PageContent } from '../lib/html.js';
+import { extractPage, nestsTooDeeply, type PageContent } from '../lib/html.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import {
   isAllowed,
@@ -159,7 +159,17 @@ const outputSchema = z.object({
       kind: z
         .enum(['urlset', 'sitemapindex', 'unknown'])
         .describe('Whether it lists pages or other sitemaps.'),
-      entryCount: z.int().describe('How many <loc> entries it contains.'),
+      entryCount: z
+        .int()
+        .describe(
+          'How many <loc> entries it contains — or at least this many, when truncated is true.',
+        ),
+      truncated: z
+        .boolean()
+        .describe(
+          'Whether the sitemap was longer than the read limit and was cut off, in which case ' +
+            'entryCount is a floor rather than a total.',
+        ),
       sampleEntries: z.array(z.string()).describe('The first few entries, for recognition.'),
       problem: z.string().nullable().describe('Why it is unusable, in plain words.'),
     })
@@ -250,12 +260,15 @@ async function buildReport(input: Input, ports: Ports) {
   }
 
   const isHtml = document.contentType === null || document.contentType.includes('html');
-  const page = isHtml ? extractPage(document.body, document.url) : emptyPage();
+  // Measured before it is parsed: tree construction costs the square of the
+  // nesting depth, and a synchronous parse cannot be interrupted once started.
+  const tooDeep = isHtml && nestsTooDeeply(document.body);
+  const page = isHtml && !tooDeep ? extractPage(document.body, document.url) : emptyPage();
   const links = await checkLinks(page, document.url, robotsFetch, input, ports);
   const sitemap = await checkSitemap(origin, robotsFetch, ports);
 
   const findings = sortFindings(
-    collectFindings({ document, isHtml, page, links, sitemap, robots }),
+    collectFindings({ document, isHtml, tooDeep, page, links, sitemap, robots }),
   );
 
   const report: SeoReport = {
@@ -450,6 +463,8 @@ async function checkLinks(
 interface SitemapReport extends SitemapReading {
   url: string | null;
   found: boolean;
+  /** Whether the document was cut off at the read limit, making entryCount a floor. */
+  truncated: boolean;
   /**
    * Whether nothing was served at all, as opposed to something unusable being
    * served. A site with no sitemap has a gap; a site serving a broken one has a
@@ -477,8 +492,33 @@ async function checkSitemap(
   robotsFetch: RobotsFetch,
   ports: Ports,
 ): Promise<SitemapReport> {
-  const declared = robotsFetch.robots.sitemaps[0];
-  const url = declared ?? new URL('/sitemap.xml', origin).toString();
+  // A `Sitemap:` line is supposed to carry an absolute URL, and plenty of real
+  // files write `/sitemap.xml` instead. Resolving it against the origin turns
+  // a common authoring slip into a working check rather than into
+  // "no sitemap at /sitemap.xml: Invalid URL", which is both false and useless.
+  const url = absoluteOr(robotsFetch.robots.sitemaps[0], new URL('/sitemap.xml', origin), origin);
+
+  const elsewhere = new URL(url).origin !== origin;
+  if (elsewhere) {
+    // A sitemap on another host is another host's resource, and principle 4
+    // does not stop at the site being audited.
+    const theirRobots = await ports.robots.forOrigin(new URL(url).origin);
+    if (
+      theirRobots.availability === 'unreachable' ||
+      !isAllowed(theirRobots.robots, SERVER_NAME, pathOf(new URL(url)))
+    ) {
+      return {
+        url,
+        found: false,
+        missing: false,
+        truncated: false,
+        kind: 'unknown',
+        entryCount: 0,
+        sampleEntries: [],
+        problem: `the sitemap is on ${new URL(url).host}, whose robots.txt does not allow this crawler to read it`,
+      };
+    }
+  }
 
   try {
     const response = await ports.http.text(url, TIMEOUTS.supportFileMs, LIMITS.maxSupportFileBytes);
@@ -488,6 +528,7 @@ async function checkSitemap(
         url,
         found: false,
         missing: true,
+        truncated: false,
         kind: 'unknown',
         entryCount: 0,
         sampleEntries: [],
@@ -496,17 +537,40 @@ async function checkSitemap(
     }
 
     const reading = readSitemap(response.body, response.truncated);
-    return { url, found: reading.problem === null, missing: false, ...reading };
+    return {
+      url,
+      found: reading.problem === null,
+      missing: false,
+      truncated: response.truncated,
+      ...reading,
+    };
   } catch (cause) {
     return {
       url,
       found: false,
       missing: true,
+      truncated: false,
       kind: 'unknown',
       entryCount: 0,
       sampleEntries: [],
       problem: cause instanceof Error ? cause.message : String(cause),
     };
+  }
+}
+
+/**
+ * @param declared A `Sitemap:` value from robots.txt, absolute or not.
+ * @param fallback Where to look when nothing usable was declared.
+ * @param base The origin to resolve a relative declaration against.
+ * @returns An absolute sitemap URL.
+ * @throws Never.
+ */
+function absoluteOr(declared: string | undefined, fallback: URL, base: string): string {
+  if (declared === undefined) return fallback.toString();
+  try {
+    return new URL(declared, base).toString();
+  } catch {
+    return fallback.toString();
   }
 }
 
@@ -520,13 +584,14 @@ async function checkSitemap(
 function collectFindings(inputs: {
   document: { status: number; truncated: boolean; contentType: string | null };
   isHtml: boolean;
+  tooDeep: boolean;
   page: PageContent;
   links: LinkReport;
   sitemap: SitemapReport;
   robots: RobotsSummary;
 }): Finding[] {
   const findings: Finding[] = [];
-  const { document, isHtml, page, links, sitemap } = inputs;
+  const { document, isHtml, tooDeep, page, links, sitemap } = inputs;
 
   if (document.status >= 400) {
     findings.push(
@@ -545,6 +610,17 @@ function collectFindings(inputs: {
         'not_html',
         'warning',
         `The URL returned ${document.contentType ?? 'an unknown content type'}, not an HTML page, so there is no markup to audit.`,
+      ),
+    );
+    return findings;
+  }
+
+  if (tooDeep) {
+    findings.push(
+      finding(
+        'document_too_deeply_nested',
+        'warning',
+        'The page nests elements thousands of levels deep, which no browser renders usefully and which this audit refuses to parse. Its markup was not examined.',
       ),
     );
     return findings;
@@ -598,11 +674,17 @@ function collectFindings(inputs: {
   }
   if (links.unchecked > 0) {
     findings.push(
-      finding(
-        'links_unchecked',
-        'info',
-        `${String(links.unchecked)} further internal links were not checked, because the limit for this audit was ${String(links.checked)}.`,
-      ),
+      links.checked === 0
+        ? finding(
+            'links_not_checked',
+            'info',
+            `Link checking was switched off, so the ${String(links.unchecked)} internal links on this page were not requested.`,
+          )
+        : finding(
+            'links_unchecked',
+            'info',
+            `${String(links.unchecked)} further internal links were not checked, because this audit stopped at ${String(links.checked)}.`,
+          ),
     );
   }
 
@@ -622,6 +704,16 @@ function collectFindings(inputs: {
         'sitemap_unusable',
         'warning',
         `The sitemap at ${sitemap.url ?? 'the expected location'} cannot be used: ${sitemap.problem ?? 'unknown reason'}.`,
+      ),
+    );
+  }
+
+  if (sitemap.truncated) {
+    findings.push(
+      finding(
+        'sitemap_truncated',
+        'info',
+        `The sitemap is larger than the read limit, so it was only read as far as ${String(sitemap.entryCount)} entries.`,
       ),
     );
   }
@@ -808,6 +900,7 @@ function blocked(
       url: null,
       found: false,
       missing: false,
+      truncated: false,
       kind: 'unknown' as const,
       entryCount: 0,
       sampleEntries: [],

@@ -62,6 +62,13 @@ const outputSchema = z.object({
       loopDetected: z
         .boolean()
         .describe('Whether the chain revisited a URL it had already requested.'),
+      brokenAt: z
+        .string()
+        .nullable()
+        .describe(
+          'The URL the chain redirected to and could not reach, or null when it ended normally. ' +
+            'When this is set, finalUrl is where the chain stopped, not where it meant to go.',
+        ),
       crossHost: z
         .boolean()
         .describe('Whether the chain ended on a different host than it started.'),
@@ -176,6 +183,7 @@ async function buildReport(input: Input, ports: Ports) {
       hops: chain.hops,
       truncated: chain.truncated,
       loopDetected: chain.loopDetected,
+      brokenAt: chain.brokenAt?.url ?? null,
       crossHost: finalUrl !== null && new URL(finalUrl).host !== start.host,
     },
     https,
@@ -283,6 +291,15 @@ interface ChainResult {
   loopDetected: boolean;
   /** Headers from the last response, which is where the policy headers live. */
   finalHeaders: Headers | null;
+  /**
+   * Where the chain stopped dead, when it did.
+   *
+   * A hop that fails part-way through is still a useful, partially mapped
+   * chain — but it is also a site a visitor cannot load, and silence here is
+   * how a redirect to a host that refuses connections came to be reported as a
+   * healthy 301.
+   */
+  brokenAt: { url: string; reason: string } | null;
 }
 
 /**
@@ -307,6 +324,7 @@ async function followChain(startUrl: string, ports: Ports): Promise<ChainResult>
   let headers: Headers | null = null;
   let truncated = false;
   let loopDetected = false;
+  let brokenAt: ChainResult['brokenAt'] = null;
 
   for (let hop = 0; hop < LIMITS.maxRedirects; hop += 1) {
     if (seen.has(current)) {
@@ -319,9 +337,11 @@ async function followChain(startUrl: string, ports: Ports): Promise<ChainResult>
     try {
       response = await ports.http.hop(current, TIMEOUTS.httpHopMs, budget);
     } catch (cause) {
-      // Only the first hop failing means the site is unreachable. A later failure
-      // is still a useful, partially mapped chain.
+      // Only the first hop failing means nothing at all could be learned. A
+      // later failure still leaves a partially mapped chain — and a site whose
+      // redirect target cannot be reached, which the caller must be told about.
       if (hops.length === 0) throw cause;
+      brokenAt = { url: current, reason: cause instanceof Error ? cause.message : String(cause) };
       break;
     }
 
@@ -346,7 +366,7 @@ async function followChain(startUrl: string, ports: Ports): Promise<ChainResult>
     if (hop === LIMITS.maxRedirects - 1) truncated = true;
   }
 
-  return { hops, truncated, loopDetected, finalHeaders: headers };
+  return { hops, truncated, loopDetected, finalHeaders: headers, brokenAt };
 }
 
 /** Whether plain HTTP reaches HTTPS. */
@@ -478,6 +498,16 @@ function collectFindings(inputs: {
   const final = chain.hops.at(-1);
 
   if (final !== undefined) findings.push(...judgeStatus(final.status));
+
+  if (chain.brokenAt !== null) {
+    findings.push(
+      finding(
+        'redirect_target_unreachable',
+        'critical',
+        `The page redirects to ${chain.brokenAt.url}, which could not be reached: ${chain.brokenAt.reason}. Visitors following the redirect get nothing.`,
+      ),
+    );
+  }
 
   if (chain.loopDetected) {
     findings.push(finding('redirect_loop', 'critical', 'The redirects loop back on themselves.'));

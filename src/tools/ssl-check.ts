@@ -109,8 +109,10 @@ const outputSchema = z.object({
         .describe('Whether the certificate covers "www." plus the registrable domain.'),
       wwwResolves: z
         .boolean()
+        .nullable()
         .describe(
-          'Whether "www." resolves at all. Missing www coverage only matters when it does.',
+          'Whether "www." resolves at all. Missing www coverage only matters when it does. Null ' +
+            'when DNS could not be consulted, in which case that coverage was not judged.',
         ),
     })
     .describe('Which hostnames this certificate is valid for.'),
@@ -172,14 +174,16 @@ async function buildReport(
   }
 
   const inspection = tlsResult.value;
-  const wwwResolves = dnsResult.status === 'fulfilled' ? dnsResult.value.wwwResolves : false;
+  // `null`, not `false`: a lookup that failed established nothing, and reading
+  // it as "www does not resolve" silently switches off the www coverage check.
+  const wwwResolves = dnsResult.status === 'fulfilled' ? dnsResult.value.wwwResolves : null;
   const leaf = inspection.chain.leaf;
   const daysUntilExpiry = daysUntil(leaf?.validTo ?? null, now);
   const severity = expirySeverity(daysUntilExpiry, warnDays);
 
   const coverage = {
     subjectAltName: inspection.subjectAltName,
-    coversRequestedHost: inspection.hostMatches[target.ascii] !== null,
+    coversRequestedHost: (inspection.hostMatches[target.ascii] ?? null) !== null,
     matchedVia: inspection.hostMatches[target.ascii] ?? null,
     coversApex: (inspection.hostMatches[apex] ?? null) !== null,
     coversWww: (inspection.hostMatches[www] ?? null) !== null,
@@ -320,7 +324,7 @@ interface FindingInputs {
     coversApex: boolean;
     coversWww: boolean;
     coversRequestedHost: boolean;
-    wwwResolves: boolean;
+    wwwResolves: boolean | null;
   };
   daysUntilExpiry: number | null;
   severity: ReturnType<typeof expirySeverity>;
@@ -390,7 +394,17 @@ function collectFindings(inputs: FindingInputs): Finding[] {
     );
   }
 
-  if (coverage.coversApex && !coverage.coversWww && coverage.wwwResolves) {
+  if (coverage.wwwResolves === null && coverage.coversApex && !coverage.coversWww) {
+    findings.push(
+      finding(
+        'www_coverage_unjudged',
+        'unknown',
+        `The certificate does not cover ${inputs.www}, and DNS could not be consulted to find out whether anything is served there.`,
+      ),
+    );
+  }
+
+  if (coverage.coversApex && !coverage.coversWww && coverage.wwwResolves === true) {
     findings.push(
       finding(
         'www_not_covered',

@@ -264,4 +264,22 @@ describe('runDomainCheck', () => {
     expect(structured(result)['dnssec']).toEqual({ delegationSigned: null, source: 'unknown' });
     expect(text(result)).toContain('not established');
   });
+
+  it('does not call a domain unresolvable when the lookup itself failed', async () => {
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: new Error('DNS lookup for example.com timed out after 4s'),
+      }),
+    );
+
+    // "The domain does not resolve at all" is a fact about the domain. A
+    // timeout is a fact about the lookup, and it used to be reported as the
+    // former — at critical, directly above the warning contradicting it.
+    expect(findingCodes(result)).toEqual(['dns_lookup_failed']);
+    expect(structured(result)['severity']).toBe('warning');
+    expect(structured(result)['dnsResolved']).toBe(false);
+    expect(text(result)).toContain('Resolves: not established');
+  });
 });

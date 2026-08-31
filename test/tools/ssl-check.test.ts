@@ -203,14 +203,34 @@ describe('runSslCheck', () => {
     expect(text(result)).toContain('timed out after 8s');
   });
 
-  it('still reports the certificate when DNS is unavailable', async () => {
+  it('still reports the certificate when DNS is unavailable, without claiming www is absent', async () => {
     const result = await runSslCheck(
       { domain: 'example.com' },
       fakePorts({ tls: inspection(), dnsRecords: new CheckError('timeout', 'DNS timed out') }),
     );
 
     expect(result.isError).toBeFalsy();
-    expect(structured(result)['coverage']).toMatchObject({ wwwResolves: false });
+    // Null, not false: a lookup that never answered established nothing.
+    expect(structured(result)['coverage']).toMatchObject({ wwwResolves: null });
+  });
+
+  it('says it could not judge www coverage rather than passing the certificate', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        // Covers the apex only. With DNS unavailable the old code read
+        // wwwResolves as false, which switched the www check off and reported
+        // a clean certificate.
+        tls: inspection({
+          subjectAltName: 'DNS:example.com',
+          hostMatches: { 'example.com': 'example.com', 'www.example.com': null },
+        }),
+        dnsRecords: new CheckError('timeout', 'DNS timed out'),
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('www_coverage_unjudged');
+    expect(structured(result)['severity']).toBe('unknown');
   });
 
   it('rejects input that is not a host', async () => {

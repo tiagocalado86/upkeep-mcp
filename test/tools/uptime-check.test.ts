@@ -334,4 +334,33 @@ describe('runUptimeCheck', () => {
     expect((await runUptimeCheck({ url: '   ' }, fakePorts())).isError).toBe(true);
     expect((await runUptimeCheck({ url: 'http://' }, fakePorts())).isError).toBe(true);
   });
+
+  it('reports a redirect to a host that cannot be reached, instead of a healthy 301', async () => {
+    const result = await runUptimeCheck(
+      { url: 'https://example.com/' },
+      fakePorts({
+        hops: {
+          'https://example.com/': {
+            status: 301,
+            location: 'https://www.example.com/',
+            headers: {
+              'strict-transport-security': HSTS,
+              'content-security-policy': "default-src 'self'",
+              'x-content-type-options': 'nosniff',
+            },
+          },
+          'https://www.example.com/': new Error('connect ECONNREFUSED'),
+          'http://example.com/': { status: 301, location: 'https://example.com/' },
+        },
+      }),
+    );
+
+    // Before this was caught, the whole thing read as severity ok, reachable
+    // true, no findings: a dead site, green in a client report.
+    expect(findingCodes(result)).toContain('redirect_target_unreachable');
+    expect(structured(result)['severity']).toBe('critical');
+    expect(structured(result)['redirects']).toMatchObject({
+      brokenAt: 'https://www.example.com/',
+    });
+  });
 });

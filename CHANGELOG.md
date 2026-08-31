@@ -48,6 +48,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `uptime_check` reported a site as healthy when its redirect pointed at a host
+  that could not be reached: the failed hop was swallowed and the result read
+  `severity: ok`, `reachable: true`, no findings. A chain that stops dead is now
+  a critical finding naming the URL that refused.
+- `domain_check` reported "The domain does not resolve at all" — critical — when
+  the DNS lookup had merely timed out, directly above the warning saying so. The
+  empty records that stand in for a failed lookup are no longer read as fact,
+  and `dnsResolved` says which happened.
+- `ssl_check` read an unanswered DNS lookup as "www does not resolve", which
+  switched off the www coverage check and passed a certificate that does not
+  cover it. `wwwResolves` is now null when nothing was established, and the gap
+  is reported.
+- `seo_audit` never fetched a sitemap declared with a relative path, reporting
+  "Invalid URL" instead; a sitemap on another host is now checked against that
+  host's `robots.txt` before it is requested; a sitemap cut off at the read
+  limit says so instead of reporting a partial count as the total; and switching
+  link checking off no longer blames a limit of zero.
+- `seo_audit` refuses a document nested thousands of levels deep instead of
+  parsing it. HTML tree construction costs roughly the square of the nesting
+  depth, so two mebibytes of `<div>` would have blocked the event loop for
+  minutes — a hang any hostile page could trigger.
 - A certificate with no common name is now named by its first subject
   alternative name, as `CertificateSummary` always claimed. The CA/Browser
   Forum deprecated the common name, so certificates that omit it exist, and they
