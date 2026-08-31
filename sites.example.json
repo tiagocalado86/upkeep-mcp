@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "Example portfolio file for upkeep-mcp. Copy it to sites.json and edit.",
+    "sites.json and sites.local.json are gitignored — your real client list never gets committed.",
+    "",
+    "Top level:",
+    "  version            Format version. Currently 1.",
+    "  defaults           Applied to every site; each site may override any of these.",
+    "  sites              The portfolio. Every entry needs at least `name` and `url`.",
+    "",
+    "Per site:",
+    "  name               Human label used in reports. Free text.",
+    "  url                Full URL including scheme, the address a visitor would use.",
+    "  domain             Registrable domain for registration and DNS checks.",
+    "                     Optional — derived from `url` when omitted. Set it when the",
+    "                     site lives on a subdomain and you want the parent checked.",
+    "  checks             Which checks to run. Omit to use defaults.checks.",
+    "  expiryWarningDays  Flag domain or certificate expiry within this many days.",
+    "  tags               Free-form labels for filtering a report.",
+    "  notes              Context for you; carried through into the report output.",
+    "",
+    "Valid check names: domain, ssl, uptime, seo, accessibility.",
+    "The format is provisional until portfolio_report lands in Phase 3."
+  ],
+
+  "version": 1,
+
+  "defaults": {
+    "checks": ["domain", "ssl", "uptime"],
+    "expiryWarningDays": 30
+  },
+
+  "sites": [
+    {
+      "name": "Example Bakery",
+      "url": "https://www.example.com",
+      "tags": ["retainer", "monthly"],
+      "notes": "Smallest possible entry: everything else comes from defaults."
+    },
+    {
+      "name": "Example Foundation",
+      "url": "https://example.org",
+      "checks": ["domain", "ssl", "uptime", "seo"],
+      "expiryWarningDays": 60,
+      "tags": ["retainer", "quarterly", "high-traffic"],
+      "notes": "Renewal is slow to approve, so warn earlier than the default."
+    },
+    {
+      "name": "Example Foundation — Shop",
+      "url": "https://shop.example.org",
+      "domain": "example.org",
+      "checks": ["domain", "ssl", "uptime", "seo", "accessibility"],
+      "tags": ["retainer", "quarterly", "ecommerce"],
+      "notes": "Runs on a subdomain; `domain` points registration checks at the apex."
+    },
+    {
+      "name": "Example Net (legacy)",
+      "url": "http://example.net",
+      "checks": ["domain", "ssl", "uptime"],
+      "tags": ["legacy", "no-retainer"],
+      "notes": "Still on http://. uptime_check reports the missing redirect to https."
+    }
+  ]
+}
