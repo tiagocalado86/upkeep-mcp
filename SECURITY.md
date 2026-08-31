@@ -40,9 +40,25 @@ service, ever. There is nothing to steal from its configuration and nothing to
 leak from its memory.
 
 **It reads only public information.** Everything it inspects is what any person
-with a browser or a DNS resolver could read: DNS records, RDAP/WHOIS
-registration data, TLS certificates presented by a public endpoint, HTTP
-response headers, and public page content.
+with a browser or a DNS resolver could read: DNS records, RDAP registration
+data, TLS certificates presented by a public endpoint, HTTP response headers,
+and public page content. Registration data comes from RDAP only — there is no
+WHOIS fallback, and
+[`docs/adr/0004`](docs/adr/0004-rdap-without-whois.md) explains why.
+
+**It tells you who else learns what you checked.** Running a check discloses the
+target to whoever answers for it, which is unavoidable, so the list is short and
+written down rather than left implicit:
+
+| Contacted                  | What it learns         | Why                                                                       |
+| -------------------------- | ---------------------- | ------------------------------------------------------------------------- |
+| The target host itself     | That it was requested  | `ssl_check` and `uptime_check` connect to it                              |
+| `data.iana.org`            | Nothing about a domain | The RDAP bootstrap file, fetched at most once per process                 |
+| The registry's RDAP server | The domain             | It is the registry for that domain and already holds the record           |
+| `cloudflare-dns.com`       | The domain             | `node:dns` cannot query DS at all, so DNSSEC delegation is asked over DoH |
+
+Nothing else is contacted, no analytics or telemetry is sent anywhere, and every
+request carries a `User-Agent` naming this project and linking to it.
 
 **It is not an offensive tool.** No port scanning, no subdomain
 brute-forcing, no vulnerability probing, no attempt to bypass authentication or

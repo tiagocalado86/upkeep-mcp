@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `guard`, a wrapper applied to every tool handler so that no exception can
   cross the MCP boundary.
 - GitHub Actions CI running format, lint, typecheck, tests and build on
-  Node.js 20 and 22.
+  Node.js 22 and 24.
 - `CLAUDE.md` recording the project principles and conventions.
 - `docs/adr/` recording the structural decisions, including the choice to ship
   without a WHOIS fallback and the move to a Node.js 22 baseline.

@@ -132,6 +132,11 @@ information that any person with a browser or a DNS resolver could read.
   an identifiable `User-Agent` carrying a contact URL.
 - No persistent sensitive state. Caching is in memory only, with a TTL. There is
   no database and nothing is written to disk.
+- The only third parties contacted are the ones that hold the answer: the
+  registry's own RDAP server, IANA's RDAP bootstrap file, and
+  `cloudflare-dns.com` for the one question `node:dns` cannot ask (whether a
+  DNSSEC delegation is signed). [`SECURITY.md`](SECURITY.md) lists them and what
+  each one learns.
 
 ## Limitations
 
