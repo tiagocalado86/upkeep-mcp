@@ -254,6 +254,8 @@ that does less.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — development setup, and how to add a tool
 - [`docs/architecture.md`](docs/architecture.md) — how a request flows, and how it
   is tested without a network
+- [`docs/prior-art.md`](docs/prior-art.md) — the MCP servers that already do parts
+  of this, what they do better, and the gap this one fills
 - [`docs/adr/`](docs/adr/) — one short record per structural decision
 - [`SECURITY.md`](SECURITY.md) — threat model and reporting policy
 - [`CHANGELOG.md`](CHANGELOG.md)

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docs/prior-art.md`: the MCP servers that already check certificates, domains,
+  uptime and accessibility, what several of them do better than this one, and
+  the gap none of them fills — every one answers about a single target, and
+  nothing aggregates a portfolio or reports what changed since the last run.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

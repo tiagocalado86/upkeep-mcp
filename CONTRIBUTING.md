@@ -19,7 +19,10 @@ either does not get merged regardless of how good it is otherwise:
    subdomain brute-forcing, no vulnerability probing. This tool inspects public
    configuration.
 
-The full threat model is in [SECURITY.md](SECURITY.md).
+The full threat model is in [SECURITY.md](SECURITY.md), and
+[docs/prior-art.md](docs/prior-art.md) explains what this project does that the
+neighbouring MCP servers do not — worth reading before proposing a feature that
+duplicates one of them.
 
 ## Setup
 
