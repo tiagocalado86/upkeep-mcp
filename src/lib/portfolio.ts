@@ -1,5 +1,5 @@
 import * as z from 'zod/v4';
-import { DOMAIN_EXPIRY_WARNING_DAYS } from './defaults.js';
+import { DOMAIN_EXPIRY_WARNING_DAYS, LIMITS } from './defaults.js';
 import { parseTarget } from './domain-name.js';
 import { normaliseUrl } from './url.js';
 
@@ -32,6 +32,7 @@ const siteSchema = z.object({
   domain: z.string().min(1).optional(),
   checks: z.array(checkSchema).optional(),
   expiryWarningDays: z.int().min(1).max(3650).optional(),
+  maxLinks: z.int().min(0).max(50).optional(),
   tags: z.array(z.string()).optional(),
   notes: z.string().optional(),
 });
@@ -42,6 +43,7 @@ const fileSchema = z.object({
     .object({
       checks: z.array(checkSchema).optional(),
       expiryWarningDays: z.int().min(1).max(3650).optional(),
+      maxLinks: z.int().min(0).max(50).optional(),
     })
     .optional(),
   sites: z.array(siteSchema).min(1),
@@ -59,6 +61,17 @@ export interface Site {
   checks: CheckName[];
   /** Days before expiry at which this site's owner wants warning. */
   expiryWarningDays: number;
+  /**
+   * Internal links `seo_audit` may request for this site. `0` switches link
+   * checking off.
+   *
+   * The setting that decides what a portfolio run costs. Link checking is one
+   * request per link, paced at half a second per host, so twenty-five links is
+   * twelve seconds a site — measured, a portfolio of twenty takes eight seconds
+   * without it and around forty with it. Sites where broken links matter keep
+   * the default; the rest can drop it.
+   */
+  maxLinks: number;
   /** Free-form labels, for filtering a report. */
   tags: string[];
   /** Context carried through into the report. */
@@ -113,7 +126,11 @@ export function readPortfolio(raw: unknown): PortfolioResult {
  */
 function normaliseSite(
   entry: z.infer<typeof siteSchema>,
-  defaults: { checks?: CheckName[] | undefined; expiryWarningDays?: number | undefined },
+  defaults: {
+    checks?: CheckName[] | undefined;
+    expiryWarningDays?: number | undefined;
+    maxLinks?: number | undefined;
+  },
 ): { ok: true; site: Site } | { ok: false; reason: string } {
   const url = normaliseUrl(entry.url);
   if (url === null) {
@@ -143,6 +160,7 @@ function normaliseSite(
       checks: [...(entry.checks ?? defaults.checks ?? DEFAULT_CHECKS)],
       expiryWarningDays:
         entry.expiryWarningDays ?? defaults.expiryWarningDays ?? DOMAIN_EXPIRY_WARNING_DAYS,
+      maxLinks: entry.maxLinks ?? defaults.maxLinks ?? LIMITS.maxLinksChecked,
       tags: entry.tags ?? [],
       notes: entry.notes ?? null,
     },

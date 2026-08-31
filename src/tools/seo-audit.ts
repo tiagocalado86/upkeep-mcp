@@ -309,18 +309,28 @@ export async function runSeoAudit(input: Input, ports: Ports): Promise<CallToolR
 /**
  * Runs an SEO audit for `portfolio_report`.
  *
- * Link checking is left on: broken links are one of the two things a client
- * notices without being told, and a portfolio report that skipped them to save
- * time would be quietly less useful than the tool it aggregates.
+ * Link checking stays on by default: broken links are one of the two things a
+ * client notices without being told. It is also what a portfolio run spends its
+ * time on — one request per link, paced per host — so the portfolio file sets
+ * the budget per site, and `0` switches it off for sites where it is not worth
+ * the wait.
  *
  * @param url The page to audit.
  * @param ports The I/O boundary.
+ * @param maxLinks Internal links to check for this site. `0` checks none.
  * @returns The outcome, reduced to what a portfolio aggregates. Nothing here
  *   expires, so the day count is always null.
  * @throws Never.
  */
-export async function checkSeoForPortfolio(url: string, ports: Ports): Promise<CheckOutcome> {
-  const outcome = await buildReport({ url }, ports);
+export async function checkSeoForPortfolio(
+  url: string,
+  ports: Ports,
+  maxLinks: number,
+): Promise<CheckOutcome> {
+  const outcome = await buildReport(
+    maxLinks === 0 ? { url, checkLinks: false } : { url, maxLinks },
+    ports,
+  );
   if (!outcome.ok) return outcome;
 
   return {

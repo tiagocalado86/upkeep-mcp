@@ -24,6 +24,7 @@ describe('readPortfolio', () => {
           domain: 'example.com',
           checks: ['domain', 'ssl', 'uptime'],
           expiryWarningDays: 30,
+          maxLinks: 25,
           tags: [],
           notes: null,
         },
@@ -54,6 +55,33 @@ describe('readPortfolio', () => {
         { name: 'Overrides', checks: ['ssl'], expiryWarningDays: 7 },
       ],
     });
+  });
+
+  it('takes the link budget from the site, then the file, then the project default', () => {
+    const result = readPortfolio(
+      file({
+        defaults: { maxLinks: 5 },
+        sites: [
+          { name: 'Inherits', url: 'https://a.example' },
+          { name: 'Overrides', url: 'https://b.example', maxLinks: 40 },
+          { name: 'Off', url: 'https://c.example', maxLinks: 0 },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      sites: [{ maxLinks: 5 }, { maxLinks: 40 }, { maxLinks: 0 }],
+    });
+  });
+
+  it('refuses a link budget outside what a polite crawl can spend', () => {
+    expect(
+      readPortfolio(file({ sites: [{ name: 'X', url: 'https://x.example', maxLinks: 500 }] })).ok,
+    ).toBe(false);
+    expect(
+      readPortfolio(file({ sites: [{ name: 'X', url: 'https://x.example', maxLinks: -1 }] })).ok,
+    ).toBe(false);
   });
 
   it('derives the registrable domain from a subdomain, and honours an explicit one', () => {

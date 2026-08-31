@@ -495,4 +495,80 @@ describe('runPortfolioReport', () => {
 
     expect(sitesOf(result)[0]?.notes).toBe('Renewal is slow to approve.');
   });
+
+  it('spends only the link budget a site asks for', async () => {
+    const requested: string[] = [];
+    const ports = portfolioPorts({});
+    const base = ports.http.hop.bind(ports.http);
+    ports.http.hop = (url, timeoutMs, signal) => {
+      requested.push(url);
+      return base(url, timeoutMs, signal);
+    };
+    ports.http.text = (url) =>
+      Promise.resolve({
+        url,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        contentType: 'text/html',
+        body: `<html><body>${Array.from(
+          { length: 10 },
+          (_, index) => `<a href="/p${String(index)}">l</a>`,
+        ).join('')}</body></html>`,
+        truncated: false,
+      });
+
+    await runPortfolioReport(
+      {
+        sites: [
+          {
+            name: 'Budgeted',
+            url: 'https://budget.example/',
+            checks: ['seo'] as CheckName[],
+            maxLinks: 3,
+          },
+        ],
+      },
+      ports,
+    );
+
+    // Ten links on the page, a budget of three: exactly three requested. This
+    // is the setting that decides what a portfolio run costs.
+    const linkRequests = requested.filter((url) => url.includes('/p'));
+    expect(linkRequests).toHaveLength(3);
+  });
+
+  it('checks no links at all when a site sets the budget to zero', async () => {
+    const requested: string[] = [];
+    const ports = portfolioPorts({});
+    const base = ports.http.hop.bind(ports.http);
+    ports.http.hop = (url, timeoutMs, signal) => {
+      requested.push(url);
+      return base(url, timeoutMs, signal);
+    };
+    ports.http.text = (url) =>
+      Promise.resolve({
+        url,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        contentType: 'text/html',
+        body: '<html><body><a href="/a">l</a><a href="/b">l</a></body></html>',
+        truncated: false,
+      });
+
+    await runPortfolioReport(
+      {
+        sites: [
+          {
+            name: 'Fast',
+            url: 'https://fast.example/',
+            checks: ['seo'] as CheckName[],
+            maxLinks: 0,
+          },
+        ],
+      },
+      ports,
+    );
+
+    expect(requested.filter((url) => url.endsWith('/a') || url.endsWith('/b'))).toEqual([]);
+  });
 });

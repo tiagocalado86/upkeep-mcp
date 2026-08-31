@@ -58,6 +58,16 @@ const siteInputSchema = z.object({
     .max(3650)
     .optional()
     .describe('Warn this many days before the registration expires. Defaults to 30.'),
+  maxLinks: z
+    .int()
+    .min(0)
+    .max(50)
+    .optional()
+    .describe(
+      'Internal links the seo check may request for this site, 0 to check none. Defaults to 25. ' +
+        'This is what a portfolio run spends its time on: one request per link, paced at half a ' +
+        'second per host, so twenty-five links is roughly twelve seconds for that site.',
+    ),
   tags: z.array(z.string()).optional().describe('Free-form labels, for filtering a report.'),
   notes: z.string().optional().describe('Context carried through into the report.'),
 });
@@ -457,7 +467,7 @@ async function runCheck(check: CheckName, site: Site, ports: Ports): Promise<Che
     case 'uptime':
       return checkUptimeForPortfolio(site.url, ports);
     case 'seo':
-      return checkSeoForPortfolio(site.url, ports);
+      return checkSeoForPortfolio(site.url, ports, site.maxLinks);
     default:
       return {
         ok: false,

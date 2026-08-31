@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A site whose requested checks cannot all run reports them anyway, with
   `ran: false`; one whose checks can none of them run is `unknown`, never `ok`.
   A portfolio must not read as healthy having checked nothing.
+- `maxLinks` per site in the portfolio file, and inline in `portfolio_report`:
+  how many internal links the `seo` check may request, `0` for none. Measured
+  over twenty public domains, a portfolio takes about eight seconds without
+  `seo` and around forty with it, because link checking is one request per link
+  paced at half a second per host — so the budget belongs to whoever owns the
+  portfolio, not to a constant in the code.
 - `npm run coverage`, and tests for the pieces that had none: the DNS record
   mapping, the certificate chain walk, error categorisation, the RDAP lookup
   path and the portfolio machinery.

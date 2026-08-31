@@ -144,6 +144,12 @@ First run in this session, so there is nothing to compare against yet.
 Nothing to do: Example Foundation.
 ```
 
+Each site can set `maxLinks` — how many internal links the `seo` check may
+request, `0` for none. It is the setting that decides what a run costs: measured
+over twenty sites, the portfolio takes about eight seconds without `seo` and
+around forty with it, because link checking is one request per link paced at
+half a second per host.
+
 The portfolio file format is documented in
 [`sites.example.json`](sites.example.json). Copy it to `sites.json` — which is
 gitignored, so a real client list never gets committed.
