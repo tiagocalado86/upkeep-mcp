@@ -17,6 +17,26 @@ const DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
 const RRTYPE_DS = 43;
 
 /**
+ * The part of `node:dns`'s `Resolver` this module uses.
+ *
+ * Declared as an interface so that a test can pass one in. `node:dns` is not
+ * reachable through the `fetch` seam the rest of the project tests behind, and
+ * nothing here mocks a Node builtin — see
+ * `docs/adr/0006-injected-ports-as-the-test-seam.md`. A real `Resolver`
+ * satisfies this structurally.
+ */
+export interface DnsResolver {
+  resolve4(hostname: string): Promise<string[]>;
+  resolve6(hostname: string): Promise<string[]>;
+  resolveNs(hostname: string): Promise<string[]>;
+  resolveMx(hostname: string): Promise<{ exchange: string; priority: number }[]>;
+  resolveTxt(hostname: string): Promise<string[][]>;
+  resolveCaa(hostname: string): Promise<NodeCaaRecord[]>;
+  /** Rejects every query in flight. The only thing that actually stops one. */
+  cancel(): void;
+}
+
+/**
  * Resolves every record a maintenance check cares about, for a domain and its
  * `www` sibling.
  *
@@ -30,17 +50,17 @@ const RRTYPE_DS = 43;
  *
  * @param domain Hostname in A-label form.
  * @param timeoutMs Whole-operation deadline.
+ * @param createResolver Builds the resolver. Injected so the record mapping can
+ *   be tested without a resolver on the other end.
  * @returns Every record set, plus whether the apex and `www` resolve.
  * @throws {CheckError} `timeout` when the deadline passes.
  */
 export async function resolveRecords(
   domain: string,
   timeoutMs: number = TIMEOUTS.dnsMs,
+  createResolver: () => DnsResolver = defaultResolver,
 ): Promise<DnsRecords> {
-  // One try, because the resolver's own timeout is per attempt and backs off
-  // exponentially per round: with Node's default of four tries, a 2s timeout can
-  // take about 30 seconds to give up. The real deadline is the race below.
-  const resolver = new Resolver({ timeout: TIMEOUTS.dnsAttemptMs, tries: 1 });
+  const resolver = createResolver();
 
   const work = Promise.all([
     optional(() => resolver.resolve4(domain)),
@@ -78,6 +98,19 @@ export async function resolveRecords(
     txt: txt.map((chunks) => chunks.join('')),
     caa: caa.map(toCaaRecord),
   };
+}
+
+/**
+ * @returns A resolver configured the way this project needs one.
+ *
+ * One try, because the resolver's own timeout is per attempt and backs off
+ * exponentially per round: with Node's default of four tries, a 2s timeout can
+ * take about 30 seconds to give up. The real deadline is the race in
+ * {@link resolveRecords}.
+ * @throws Never.
+ */
+function defaultResolver(): DnsResolver {
+  return new Resolver({ timeout: TIMEOUTS.dnsAttemptMs, tries: 1 });
 }
 
 /**
@@ -153,7 +186,7 @@ async function optional<T>(query: () => Promise<T[]>): Promise<T[]> {
  */
 async function withDeadline<T>(
   work: Promise<T>,
-  resolver: Resolver,
+  resolver: DnsResolver,
   timeoutMs: number,
   domain: string,
 ): Promise<T> {

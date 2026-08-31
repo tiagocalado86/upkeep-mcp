@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import type { CheckName } from '../../src/lib/portfolio.js';
 import { createDefaultPorts } from '../../src/lib/ports.js';
 import { runDomainCheck } from '../../src/tools/domain-check.js';
+import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
 import { runSeoAudit } from '../../src/tools/seo-audit.js';
 import { runSslCheck } from '../../src/tools/ssl-check.js';
 import { runUptimeCheck } from '../../src/tools/uptime-check.js';
@@ -158,4 +160,28 @@ describe('seo_audit against a real page', () => {
     expect(structured(result)['fetched']).toBe(false);
     expect(findingCodes(result)).toContain('page_disallowed_by_robots');
   });
+});
+
+describe('portfolio_report against real domains', () => {
+  it('checks a small portfolio and ranks it, comparing a second run with the first', async () => {
+    const sites: { name: string; url: string; checks: CheckName[] }[] = [
+      { name: 'Example Ltd', url: 'https://example.com', checks: ['domain', 'ssl', 'uptime'] },
+      { name: 'Example Foundation', url: 'https://example.org', checks: ['ssl'] },
+    ];
+
+    const first = await runPortfolioReport({ sites }, ports);
+    expect(first.isError).toBeFalsy();
+    expect(structured(first)).toMatchObject({
+      siteCount: 2,
+      changes: { comparedWithPreviousRun: false },
+    });
+
+    // The second run shares this module's ports, so it has the first to compare
+    // against — the in-memory history working end to end.
+    const second = await runPortfolioReport({ sites }, ports);
+    expect(structured(second)['changes']).toMatchObject({
+      comparedWithPreviousRun: true,
+      regressed: [],
+    });
+  }, 60_000);
 });

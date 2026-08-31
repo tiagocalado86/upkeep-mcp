@@ -15,12 +15,16 @@
     "                     Optional — derived from `url` when omitted. Set it when the",
     "                     site lives on a subdomain and you want the parent checked.",
     "  checks             Which checks to run. Omit to use defaults.checks.",
-    "  expiryWarningDays  Flag domain or certificate expiry within this many days.",
+    "  expiryWarningDays  Warn this many days before the registration expires.",
+    "                     Certificates keep their own, shorter window (14 days), because",
+    "                     ACME clients renew with 30 days left and warning earlier would",
+    "                     fire on every healthy site. A value below 14 applies to both.",
     "  tags               Free-form labels for filtering a report.",
     "  notes              Context for you; carried through into the report output.",
     "",
     "Valid check names: domain, ssl, uptime, seo, accessibility.",
-    "The format is provisional until portfolio_report lands in Phase 3."
+    "accessibility is accepted but not implemented yet; portfolio_report says so rather",
+    "than silently skipping it."
   ],
 
   "version": 1,

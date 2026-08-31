@@ -24,6 +24,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page served at the sitemap URL with a 200 status.
 - `getText`, which reads a response body up to a byte limit and reports whether
   it was cut off, so no remote host decides how much this process allocates.
+- `portfolio_report`: every check across a whole portfolio, with bounded
+  concurrency, returned as one report ordered by what needs action first. Reads
+  the portfolio inline or from a local JSON file, filters by tag, and reports
+  what regressed since the previous run. A site that cannot be checked is a
+  finding, not a failed report.
+- The `portfolio://sites` resource, exposing the site list to a client without
+  spending a tool call, and the `quarterly_report` prompt, which turns a
+  portfolio run into the report a client reads.
+- Comparison with the previous run, held in memory for the life of the server
+  process and never written to disk. The report says when it has nothing to
+  compare against. See `docs/adr/0011-in-memory-run-history.md`.
+- `npm run coverage`, and tests for the pieces that had none: the DNS record
+  mapping, the certificate chain walk, error categorisation, the RDAP lookup
+  path and the portfolio machinery.
+
+### Fixed
+
+- A certificate with no common name is now named by its first subject
+  alternative name, as `CertificateSummary` always claimed. The CA/Browser
+  Forum deprecated the common name, so certificates that omit it exist, and they
+  were being reported with no subject at all.
 
 ## [0.1.0] - 2026-08-31
 

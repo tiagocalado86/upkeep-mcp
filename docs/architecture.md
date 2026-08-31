@@ -56,6 +56,12 @@ Take `domain_check` for `https://www.shop.example.co.uk/basket`.
 
 `ssl_check` and `uptime_check` follow the same shape.
 
+`portfolio_report` sits on top rather than beside: it calls the same checks
+through a second entry point on each tool (`check*ForPortfolio`), which returns
+the report itself instead of an MCP result. That is why the tools split
+"gather the report" from "render a result" — reading a report back out of a
+`CallToolResult` would mean parsing our own output.
+
 `seo_audit` adds one step in front of all of them: it reads `robots.txt` and
 obeys it before requesting anything, including before requesting each internal
 link it would otherwise check. A page it is not allowed to read produces a

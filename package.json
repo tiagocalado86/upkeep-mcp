@@ -50,6 +50,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.include='src/**' --coverage.reporter=text --coverage.reporter=html",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
     "prepublishOnly": "npm run check && npm run build",
@@ -64,6 +65,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.4.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",

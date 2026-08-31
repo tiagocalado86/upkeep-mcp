@@ -21,7 +21,11 @@ browser is implemented and useful today.
 | `health`              | Server name, version, Node.js version, uptime                               | Available |
 | `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links         | Available |
 | `accessibility_audit` | WCAG violations via axe-core                                                | Planned   |
-| `portfolio_report`    | All of the above across a portfolio, sorted by urgency                      | Planned   |
+
+It also exposes the `portfolio://sites` resource (the site list, for a client to
+read without spending a tool call) and the `quarterly_report` prompt (turns a
+portfolio run into the report a client actually reads).
+| `portfolio_report` | All of the above across a portfolio, sorted by urgency | Available |
 
 Not published to npm yet — install from source, as below.
 
@@ -114,6 +118,36 @@ Needs attention:
 - [info] The site publishes no robots.txt. Nothing is blocked, but the sitemap cannot be declared there either.
 ```
 
+### `portfolio_report`
+
+Input: `sites` inline, or `file` (defaults to `sites.json`), plus optional
+`checks` and `tags`.
+
+Runs every check across the whole portfolio with bounded concurrency and returns
+one report ordered by what needs action first: what is down, what expires
+soonest, what regressed since the last run. A site that cannot be checked
+becomes a finding, never a failure of the whole report.
+
+```
+> What needs attention across my sites this week?
+
+3 sites checked: 0 critical, 2 warning, 0 unknown, 1 fine.
+
+Needs action:
+- [warning] Example Ltd: Plain HTTP does not redirect to HTTPS.
+- [warning] Example Ltd: No Strict-Transport-Security header is sent.
+- [warning] Example Net: Plain HTTP does not redirect to HTTPS.
+- [warning] Example Net: No Strict-Transport-Security header is sent.
+
+First run in this session, so there is nothing to compare against yet.
+
+Nothing to do: Example Foundation.
+```
+
+The portfolio file format is documented in
+[`sites.example.json`](sites.example.json). Copy it to `sites.json` — which is
+gitignored, so a real client list never gets committed.
+
 ## Installation
 
 Requires **Node.js 22 or newer**.
@@ -195,6 +229,11 @@ that does less.
   schema, and it does not open a gzipped sitemap.
 - **Nothing here judges how a page ranks.** `seo_audit` reports what is in the
   HTML. Rankings depend on things no public endpoint exposes.
+- **"What changed since last time" lasts as long as the server process.** The
+  previous run is held in memory and never written to disk, so a restarted
+  server has nothing to compare against — and says so, rather than implying
+  nothing changed. [`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md)
+  explains the trade.
 - **Certificates and domains are judged on different clocks.** A registration is
   a warning inside 30 days; a certificate only inside 14. ACME clients renew with
   30 days left, so warning that early would fire on nearly every healthy site.

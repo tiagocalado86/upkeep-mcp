@@ -141,6 +141,10 @@ export function inspectTls(
 /**
  * Walks a certificate chain from the leaf upwards.
  *
+ * Exported so the termination guards can be tested without a TLS server: the
+ * three ways a chain ends are the whole difficulty here, and two of them only
+ * occur on certificates that are broken in a specific way.
+ *
  * Termination needs all three guards. `issuerCertificate` is a circular
  * reference on every *successfully verified* chain, because the terminal root is
  * self-signed and points at itself; a self-signed leaf loops immediately at
@@ -152,7 +156,7 @@ export function inspectTls(
  *   was presented.
  * @throws Never.
  */
-function walkChain(leaf: DetailedPeerCertificate): CertificateSummary[] {
+export function walkChain(leaf: DetailedPeerCertificate): CertificateSummary[] {
   const summaries: CertificateSummary[] = [];
   const seen = new Set<string>();
 
@@ -164,7 +168,7 @@ function walkChain(leaf: DetailedPeerCertificate): CertificateSummary[] {
     seen.add(current.fingerprint256);
 
     summaries.push({
-      subject: commonName(current.subject),
+      subject: subjectOf(current),
       issuer: commonName(current.issuer),
       serialNumber: current.serialNumber,
       fingerprintSha256: current.fingerprint256,
@@ -194,6 +198,31 @@ function walkChain(leaf: DetailedPeerCertificate): CertificateSummary[] {
 function issuerOf(certificate: DetailedPeerCertificate): DetailedPeerCertificate | undefined {
   const { issuerCertificate } = certificate as { issuerCertificate?: DetailedPeerCertificate };
   return issuerCertificate;
+}
+
+/**
+ * Names a certificate.
+ *
+ * The common name is preferred, but it is no longer required: the CA/Browser
+ * Forum deprecated it in favour of subject alternative names, and certificates
+ * that omit it exist in the wild. Reporting `null` for those would show a
+ * maintenance report a certificate with no name, so the first DNS name it
+ * covers is used instead.
+ *
+ * @param certificate The certificate to name.
+ * @returns Its common name, its first DNS SAN, or `null` when it has neither.
+ * @throws Never.
+ */
+function subjectOf(certificate: DetailedPeerCertificate): string | null {
+  const cn = commonName(certificate.subject);
+  if (cn !== null) return cn;
+
+  const firstDnsName = (certificate.subjectaltname ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith('DNS:'));
+
+  return firstDnsName === undefined ? null : firstDnsName.slice('DNS:'.length);
 }
 
 /**

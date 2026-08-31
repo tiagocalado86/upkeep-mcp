@@ -112,10 +112,61 @@ describe('stdio transport', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'domain_check',
       'health',
+      'portfolio_report',
       'seo_audit',
       'ssl_check',
       'uptime_check',
     ]);
+  });
+
+  it('advertises the portfolio resource', async () => {
+    const { result } = await client.request('resources/list');
+    const { resources } = result as { resources: { uri: string; description?: string }[] };
+
+    const portfolio = resources.find((resource) => resource.uri === 'portfolio://sites');
+    expect(portfolio).toBeDefined();
+    expect(portfolio?.description ?? '').not.toBe('');
+  });
+
+  it('serves the portfolio resource without a portfolio file present', async () => {
+    // The repository has no sites.json — it is gitignored, and a client asking
+    // for the list must get a document explaining that, not a protocol error.
+    const { result, error } = await client.request('resources/read', {
+      uri: 'portfolio://sites',
+    });
+
+    expect(error).toBeUndefined();
+    const { contents } = result as { contents: { text: string }[] };
+    const document = JSON.parse(contents[0]?.text ?? '{}') as { sites: unknown[]; note?: string };
+    expect(document.sites).toEqual([]);
+    expect(document.note ?? '').toContain('sites.example.json');
+  });
+
+  it('advertises the quarterly report prompt, with every argument described', async () => {
+    const { result } = await client.request('prompts/list');
+    const { prompts } = result as {
+      prompts: { name: string; description?: string; arguments?: { description?: string }[] }[];
+    };
+
+    const prompt = prompts.find((candidate) => candidate.name === 'quarterly_report');
+    expect(prompt).toBeDefined();
+    expect(prompt?.description ?? '').not.toBe('');
+    for (const argument of prompt?.arguments ?? []) {
+      expect(argument.description ?? '').not.toBe('');
+    }
+  });
+
+  it('renders the quarterly report prompt with the period it was given', async () => {
+    const { result } = await client.request('prompts/get', {
+      name: 'quarterly_report',
+      arguments: { period: 'Q3 2026', tags: 'retainer' },
+    });
+
+    const { messages } = result as { messages: { content: { text: string } }[] };
+    const text = messages.map((message) => message.content.text).join('\n');
+    expect(text).toContain('Q3 2026');
+    expect(text).toContain('portfolio_report');
+    expect(text).toContain('retainer');
   });
 
   it('gives every tool and every input field a description', async () => {

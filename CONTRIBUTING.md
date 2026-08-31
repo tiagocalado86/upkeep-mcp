@@ -3,9 +3,10 @@
 Thanks for taking a look. This is a small, opinionated project; the sections
 below cover what you need to work on it without guessing.
 
-> **Status:** Phase 2 is complete. `domain_check`, `ssl_check`, `uptime_check`
-> and `seo_audit` work and are covered by tests. Phase 3 adds
-> `portfolio_report`, which aggregates all of them across a portfolio.
+> **Status:** Phase 3 is complete. `domain_check`, `ssl_check`, `uptime_check`,
+> `seo_audit` and `portfolio_report` work and are covered by tests, along with
+> the `portfolio://sites` resource and the `quarterly_report` prompt. Phase 4
+> adds `accessibility_audit` and the Streamable HTTP transport.
 
 ## Ground rules
 
@@ -41,9 +42,10 @@ Common commands:
 | `npm run format`           | Prettier, writing in place                      |
 | `npm run check`            | Format, lint, typecheck and tests — the CI gate |
 | `npm test`                 | Vitest, unit tests only, no network             |
+| `npm run coverage`         | The same suite with a coverage report           |
 | `npm run test:integration` | Integration tests — real network, not run in CI |
 
-`npm run check` is the same gate CI applies, on Node.js 20 and 22. Run it before
+`npm run check` is the same gate CI applies, on Node.js 22 and 24. Run it before
 opening a pull request.
 
 ## Testing
@@ -78,16 +80,19 @@ that only answers on `www`.
 ```
 src/
   index.ts     entrypoint, stdio transport
-  server.ts    builds the McpServer and registers tools
+  server.ts    builds the McpServer and registers tools, resources and prompts
   tools/       one file per tool: schemas, findings, human summary
+  resources/   one file per resource
+  prompts/     one file per prompt
   lib/
     ports.ts     the I/O boundary — the only way a tool reaches the network
     dns.ts tls.ts rdap.ts http-client.ts    the implementations behind it
     robots.ts                               RFC 9309 parsing, matching, fetching
     cache.ts rate-limit.ts defaults.ts      caching, pacing, and the numbers
     html.ts sitemap.ts                      reading a page and a sitemap
+    portfolio.ts history.ts                 the site list, and the previous run
     domain-name.ts severity.ts url.ts       pure helpers
-    http-headers.ts json.ts
+    http-headers.ts json.ts concurrency.ts
   types.ts     shared result types
 test/          mirrors src/, with fixtures and fake ports
 ```

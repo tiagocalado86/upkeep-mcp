@@ -10,6 +10,7 @@
 import { writeFileSync } from 'node:fs';
 import { createDefaultPorts } from '../src/lib/ports.js';
 import { runDomainCheck } from '../src/tools/domain-check.js';
+import { runPortfolioReport } from '../src/tools/portfolio-report.js';
 import { runSeoAudit } from '../src/tools/seo-audit.js';
 import { runSslCheck } from '../src/tools/ssl-check.js';
 import { runUptimeCheck } from '../src/tools/uptime-check.js';
@@ -75,6 +76,26 @@ writeFileSync(
     'seo_audit',
     '{ "name": "seo_audit", "arguments": { "url": "https://example.com/" } }',
     await runSeoAudit({ url: 'https://example.com/' }, ports),
+  ),
+);
+
+// A portfolio of reserved, public domains. Never a client list: the checks are
+// real requests, and this file is committed.
+const examplePortfolio = [
+  { name: 'Example Ltd', url: 'https://example.com', checks: ['domain', 'ssl', 'uptime'] as const },
+  { name: 'Example Foundation', url: 'https://example.org', checks: ['domain', 'ssl'] as const },
+  { name: 'Example Net', url: 'https://example.net', checks: ['uptime'] as const },
+];
+
+writeFileSync(
+  'examples/portfolio-report.md',
+  render(
+    'portfolio_report',
+    '{ "name": "portfolio_report", "arguments": { "sites": [ /* three public domains */ ] } }',
+    await runPortfolioReport(
+      { sites: examplePortfolio.map((site) => ({ ...site, checks: [...site.checks] })) },
+      ports,
+    ),
   ),
 );
 

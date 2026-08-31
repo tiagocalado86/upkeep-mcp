@@ -1,5 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Ports } from '../../src/lib/ports.js';
+import { CheckError } from '../../src/lib/errors.js';
+import { createMemoryHistory, type RunHistory } from '../../src/lib/history.js';
 import type { RdapLookup } from '../../src/lib/rdap.js';
 import { EMPTY_ROBOTS, parseRobots, type RobotsFetch } from '../../src/lib/robots.js';
 import type { TlsInspection } from '../../src/lib/tls.js';
@@ -137,6 +139,10 @@ export interface FakeOptions {
    * cannot be asked at all.
    */
   robots?: string;
+  /** Local files the run may read, keyed by the path a caller would pass. */
+  files?: Record<string, string>;
+  /** Run history. Defaults to a fresh one, so nothing has been seen before. */
+  history?: RunHistory;
   now?: Date;
 }
 
@@ -208,6 +214,15 @@ export function fakePorts(options: FakeOptions = {}): Ports {
     robots: {
       forOrigin: (origin) => Promise.resolve(fakeRobots(origin, options.robots)),
     },
+    files: {
+      readText: (path) => {
+        const contents = options.files?.[path];
+        return contents === undefined
+          ? Promise.reject(new CheckError('not_found', `there is no file at ${path}`))
+          : Promise.resolve(contents);
+      },
+    },
+    history: options.history ?? createMemoryHistory(),
     now: () => options.now ?? NOW,
   };
 }
