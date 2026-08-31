@@ -61,7 +61,7 @@ describe('runSslCheck', () => {
     expect(structured(result)['severity']).toBe('critical');
   });
 
-  it('warns before a certificate expires', async () => {
+  it('leaves a certificate 24 days out alone, because that is a normal ACME renewal', async () => {
     const result = await runSslCheck(
       { domain: 'example.com' },
       fakePorts({
@@ -69,8 +69,33 @@ describe('runSslCheck', () => {
       }),
     );
 
-    expect(findingCodes(result)).toContain('cert_expires_soon');
     expect(structured(result)['daysUntilExpiry']).toBe(24);
+    expect(findingCodes(result)).not.toContain('cert_expires_soon');
+    expect(structured(result)['severity']).toBe('ok');
+  });
+
+  it('warns once the automatic renewal should already have happened', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        tls: inspection({ leaf: { validTo: '2026-09-12T00:00:00.000Z' } }),
+      }),
+    );
+
+    expect(structured(result)['daysUntilExpiry']).toBe(11);
+    expect(findingCodes(result)).toContain('cert_expires_soon');
+    expect(structured(result)['severity']).toBe('warning');
+  });
+
+  it('reports an unreadable expiry date as unknown rather than as nothing wrong', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({ tls: inspection({ leaf: { validTo: null } }) }),
+    );
+
+    expect(structured(result)['daysUntilExpiry']).toBeNull();
+    expect(findingCodes(result)).toContain('cert_dates_unavailable');
+    expect(structured(result)['severity']).toBe('unknown');
   });
 
   it('names a missing intermediate for what it is', async () => {

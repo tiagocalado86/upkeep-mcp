@@ -65,5 +65,23 @@ export const LIMITS = {
   maxChainDepth: 12,
 } as const;
 
-/** Days until expiry below which a certificate or registration becomes a warning. */
-export const DEFAULT_EXPIRY_WARNING_DAYS = 30;
+/**
+ * Days until a registration expires below which it becomes a warning.
+ *
+ * Thirty days is the lead time a manual renewal actually needs: an expired card
+ * on file, a registrar transfer or an owner who has to be chased all take days,
+ * and the quarterly report is built around a 30-day window.
+ */
+export const DOMAIN_EXPIRY_WARNING_DAYS = 30;
+
+/**
+ * Days until a certificate expires below which it becomes a warning.
+ *
+ * Deliberately shorter than the domain threshold, because certificates renew
+ * themselves and registrations do not. ACME issuers sign for 90 days and their
+ * clients renew with 30 remaining, so a certificate with 28 days left is a
+ * healthy site in the middle of a normal renewal. Warning there would fire on
+ * nearly every well-run site in the portfolio and teach the reader to skip the
+ * column. By 14 days the automatic renewal has demonstrably failed.
+ */
+export const CERT_EXPIRY_WARNING_DAYS = 14;

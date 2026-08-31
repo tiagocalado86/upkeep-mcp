@@ -87,6 +87,32 @@ describe('createTtlCache', () => {
     expect(cache.peek('c')).toBe('3');
   });
 
+  it('gives a value its own lifetime when the caller derives one', async () => {
+    let clock = 0;
+    const cache = createTtlCache<string>({ ttlMs: 60_000, now: () => clock });
+    const load = vi.fn(() => Promise.resolve('miss'));
+
+    // What a DNS miss gets: a successful answer that found nothing, held for a
+    // minute rather than for the full five, so a fixed delegation is seen.
+    await cache.fetch('k', load, (value) => (value === 'miss' ? 1_000 : 60_000));
+    clock = 1_001;
+
+    await cache.fetch('k', load, () => 1_000);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the default lifetime for a value the caller is happy with', async () => {
+    let clock = 0;
+    const cache = createTtlCache<string>({ ttlMs: 60_000, now: () => clock });
+    const load = vi.fn(() => Promise.resolve('hit'));
+
+    await cache.fetch('k', load, (value) => (value === 'miss' ? 1_000 : 60_000));
+    clock = 1_001;
+
+    await cache.fetch('k', load, () => 60_000);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it('drops entries on delete and clear', async () => {
     const cache = createTtlCache<string>({ ttlMs: 60_000 });
     await cache.fetch('a', () => Promise.resolve('1'));

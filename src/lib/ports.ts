@@ -87,6 +87,28 @@ function sharedState(): NonNullable<typeof shared> {
 }
 
 /**
+ * Whether a DNS lookup found the domain at all.
+ *
+ * A name that does not exist is not an error from `resolveRecords` — every
+ * record set simply comes back empty — so without this the answer would be
+ * cached as confidently as a real one, and a delegation that has just been
+ * fixed would keep looking broken for a full TTL.
+ *
+ * @param records What the resolver returned.
+ * @returns `true` if any record of any kind was found.
+ * @throws Never.
+ */
+function foundAnything(records: DnsRecords): boolean {
+  return (
+    records.apexResolves ||
+    records.wwwResolves ||
+    records.ns.length > 0 ||
+    records.mx.length > 0 ||
+    records.txt.length > 0
+  );
+}
+
+/**
  * Builds the real ports, with caching and per-host rate limiting wired in.
  *
  * The limiter is keyed by the host actually contacted, never by the domain being
@@ -102,9 +124,20 @@ export function createDefaultPorts(): Ports {
   return {
     dns: {
       // Not rate limited: these go to the system resolver, not to a third party.
-      resolveRecords: (domain) => dnsCache.fetch(domain, () => resolveRecords(domain)),
+      resolveRecords: (domain) =>
+        dnsCache.fetch(
+          domain,
+          () => resolveRecords(domain),
+          (records) => (foundAnything(records) ? TTL.dnsMs : TTL.dnsNegativeMs),
+        ),
       hasDsRecord: (domain) =>
-        dsCache.fetch(domain, () => limiter.run('cloudflare-dns.com', () => hasDsRecord(domain))),
+        dsCache.fetch(
+          domain,
+          () => limiter.run('cloudflare-dns.com', () => hasDsRecord(domain)),
+          // `null` means the resolver would not answer, not that the zone is
+          // unsigned, so it is a miss and is held for the shorter time.
+          (signed) => (signed === null ? TTL.dnsNegativeMs : TTL.dnsMs),
+        ),
     },
     rdap: {
       lookupDomain: async (registrable, now) => {

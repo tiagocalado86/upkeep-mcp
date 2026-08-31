@@ -1,10 +1,11 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
+import { DOMAIN_EXPIRY_WARNING_DAYS } from '../lib/defaults.js';
 import { parseTarget } from '../lib/domain-name.js';
 import { CheckError } from '../lib/errors.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
-import { expirySeverity, finding, worstSeverity } from '../lib/severity.js';
+import { expirySeverity, finding, sortFindings, worstSeverity } from '../lib/severity.js';
 import { fail, guard, succeed } from '../lib/tool-result.js';
 import type { DnsRecords, DnssecStatus, Finding, RdapRegistration } from '../types.js';
 
@@ -156,7 +157,10 @@ export async function runDomainCheck(input: Input, ports: Ports): Promise<CallTo
   const dns = readDns(dnsResult, registrable, findings);
   const dnssec = await readDnssec(rdapResult, registrable, ports);
 
-  const registrationSeverity = expirySeverity(registration.daysUntilExpiry);
+  const registrationSeverity = expirySeverity(
+    registration.daysUntilExpiry,
+    DOMAIN_EXPIRY_WARNING_DAYS,
+  );
   collectRegistrationFindings(registration, registrationSeverity, lookupFailed, findings);
   collectDnsFindings(dns, findings);
   if (dnssec.delegationSigned === false) {
@@ -175,7 +179,7 @@ export async function runDomainCheck(input: Input, ports: Ports): Promise<CallTo
     registrableDomain: registrable,
     checkedAt: now.toISOString(),
     severity: worstSeverity(findings),
-    findings,
+    findings: sortFindings(findings),
     registration: { ...registration, expirySeverity: registrationSeverity },
     dns,
     dnssec,
@@ -214,7 +218,9 @@ export function registerDomainCheckTool(
         '',
         'Registration data comes from RDAP. Some country registries (.de, .nl, .no, .au, .fi)',
         'publish no expiry date at all; the result says so explicitly rather than reporting a gap',
-        'as if it were an unknown. Returns findings ordered by how much attention they need.',
+        'as if it were an unknown. An expiry inside 30 days is reported as a warning and inside',
+        'seven days as critical — a manual renewal needs that much lead time. Returns findings',
+        'ordered by how much attention they need, worst first.',
       ].join('\n'),
       inputSchema,
       outputSchema,

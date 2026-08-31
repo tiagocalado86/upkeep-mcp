@@ -11,7 +11,7 @@ import {
 import type { HttpHopResult } from '../lib/http-client.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
-import { finding, worstSeverity } from '../lib/severity.js';
+import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
 import { fail, guard, succeed } from '../lib/tool-result.js';
 import type { Finding, HttpHop } from '../types.js';
 
@@ -154,7 +154,9 @@ export async function runUptimeCheck(input: Input, ports: Ports): Promise<CallTo
     : null;
   const securityHeaders = readSecurityHeaders(chain.finalHeaders ?? new Headers());
 
-  const findings = collectFindings({ chain, https, hsts, securityHeaders, overHttps });
+  const findings = sortFindings(
+    collectFindings({ chain, https, hsts, securityHeaders, overHttps }),
+  );
 
   const report = {
     url: start.toString(),
@@ -215,7 +217,12 @@ export function registerUptimeCheckTool(
         '',
         'Redirects are followed one hop at a time so the whole chain is visible, up to ten hops.',
         'Response time is wall clock to the first response headers and includes DNS, TCP and TLS',
-        'setup, so it is not a measure of server processing time. Returns findings ordered by urgency.',
+        'setup, so it is not a measure of server processing time.',
+        '',
+        'Status codes are graded rather than lumped together: 5xx, 404 and 410 are critical, 401',
+        'and 403 are a warning because they are normal for a staging site, and 429 is reported as',
+        'unknown because a throttled check establishes nothing about real availability. Returns',
+        'findings ordered by urgency, worst first.',
       ].join('\n'),
       inputSchema,
       outputSchema,
@@ -380,10 +387,62 @@ function describeUpgrade(chain: ChainResult, base: URL): HttpsUpgrade {
 }
 
 /**
+ * Judges the status the chain ended on.
+ *
+ * Not every 4xx means the same thing, and grading them all as critical is how a
+ * portfolio report fills with false alarms: a staging site behind basic auth
+ * answers 403 by design, and a 429 says the check was throttled, not that the
+ * site is down. Only a page that is genuinely missing or a server that failed
+ * gets the top severity.
+ *
+ * @param status The status code of the final hop.
+ * @returns Zero or one finding.
+ * @throws Never.
+ */
+function judgeStatus(status: number): Finding[] {
+  if (status >= 500) {
+    return [finding('server_error', 'critical', `The server answered ${String(status)}.`)];
+  }
+  if (status === 404 || status === 410) {
+    return [
+      finding(
+        'page_not_found',
+        'critical',
+        `The page returned ${String(status)}: this URL does not exist on the server.`,
+      ),
+    ];
+  }
+  if (status === 401 || status === 403) {
+    return [
+      finding(
+        'access_restricted',
+        'warning',
+        `The page returned ${String(status)}, so it is not publicly readable — expected for a ` +
+          'staging site, a problem for a live one.',
+      ),
+    ];
+  }
+  if (status === 429) {
+    return [
+      finding(
+        'rate_limited',
+        'unknown',
+        'The server answered 429, so it throttled this check rather than serving the page; ' +
+          'nothing can be concluded about whether visitors can reach it.',
+      ),
+    ];
+  }
+  if (status >= 400) {
+    return [finding('client_error', 'critical', `The page returned ${String(status)}.`)];
+  }
+  return [];
+}
+
+/**
  * Judges what the requests found.
  *
  * @param inputs The chain, the upgrade probe and the headers.
- * @returns Findings, in the order they were detected.
+ * @returns Findings in the order they were detected. The caller orders them.
  * @throws Never.
  */
 function collectFindings(inputs: {
@@ -397,17 +456,7 @@ function collectFindings(inputs: {
   const { chain, https, hsts, securityHeaders, overHttps } = inputs;
   const final = chain.hops.at(-1);
 
-  if (final !== undefined) {
-    if (final.status >= 500) {
-      findings.push(
-        finding('server_error', 'critical', `The server answered ${String(final.status)}.`),
-      );
-    } else if (final.status >= 400) {
-      findings.push(
-        finding('client_error', 'critical', `The page returned ${String(final.status)}.`),
-      );
-    }
-  }
+  if (final !== undefined) findings.push(...judgeStatus(final.status));
 
   if (chain.loopDetected) {
     findings.push(finding('redirect_loop', 'critical', 'The redirects loop back on themselves.'));

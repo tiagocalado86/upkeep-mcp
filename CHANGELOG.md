@@ -14,12 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   date are named as such rather than reported as unknown.
 - `ssl_check`: certificate expiry, issuer, chain validity, which hostnames the
   certificate covers and via which SAN entry, and the negotiated TLS version.
-  Expired, self-signed and untrusted certificates are inspected, not refused.
+  Expired, self-signed and untrusted certificates are inspected, not refused. A
+  certificate becomes a warning inside 14 days rather than 30, because ACME
+  clients renew with 30 days left and the wider window would fire on healthy
+  sites. A certificate whose dates cannot be read is reported as `unknown`, never
+  as nothing wrong.
 - `uptime_check`: status, response time, the full redirect chain, whether plain
   HTTP is upgraded to HTTPS, the HSTS policy and the security headers worth
-  reporting on.
+  reporting on. Status codes are graded rather than lumped together: 5xx, 404 and
+  410 are critical, 401 and 403 are a warning because they are normal for a
+  staging site, and 429 is `unknown` because a throttled check establishes
+  nothing.
 - In-memory TTL caching that collapses concurrent lookups, and per-host rate
-  limiting keyed by the host actually contacted.
+  limiting keyed by the host actually contacted. A DNS lookup that found nothing
+  is held for a minute rather than five, so a delegation that has just been fixed
+  is not reported as broken for the rest of the TTL.
+- Every check returns its findings ordered worst first, so the order is a
+  contract the aggregation in `portfolio_report` can rely on rather than an
+  accident of the order things were detected in.
 - `examples/` with real captured output from each tool, and
   `docs/architecture.md`.
 - Project scaffolding: TypeScript in `strict` mode, ESM, ESLint, Prettier and

@@ -20,8 +20,13 @@ export interface TtlCache<T> {
    * In-flight loads are shared: checking twenty `.com` domains at once makes one
    * request to `rdap.verisign.com`, not twenty. A rejected load is **not**
    * cached, so a transient failure does not poison the entry for its whole TTL.
+   *
+   * `ttlFor` derives the lifetime from the value that was loaded, for callers
+   * whose "found nothing" answer is a successful result rather than a rejection
+   * and should not be held as long as a real one. It is applied once the load
+   * resolves; until then the entry carries the default lifetime.
    */
-  fetch(key: string, load: () => Promise<T>): Promise<T>;
+  fetch(key: string, load: () => Promise<T>, ttlFor?: (value: T) => number): Promise<T>;
   /** The cached value if present and unexpired, without loading anything. */
   peek(key: string): T | undefined;
   /** Stores a value, optionally with a lifetime other than the default. */
@@ -79,7 +84,7 @@ export function createTtlCache<T>(options: TtlCacheOptions): TtlCache<T> {
   }
 
   return {
-    fetch(key, load) {
+    fetch(key, load, ttlFor) {
       const existing = live(key);
       if (existing !== undefined) return existing.value;
 
@@ -87,6 +92,7 @@ export function createTtlCache<T>(options: TtlCacheOptions): TtlCache<T> {
       entry.value = load().then(
         (value) => {
           entry.settled = { value };
+          if (ttlFor !== undefined) entry.expiresAt = now() + ttlFor(value);
           return value;
         },
         (cause: unknown) => {

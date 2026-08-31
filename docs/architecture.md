@@ -46,8 +46,11 @@ Take `domain_check` for `https://www.shop.example.co.uk/basket`.
 5. **DNSSEC prefers the registry's own answer.** `secureDNS.delegationSigned`
    arrived with the registration and is the parent zone's own view. Only when it
    is absent is a DNS-over-HTTPS query worth making.
-6. **Findings are collected, then reduced to one severity** — the worst present.
-   A partial answer is a success with a gap explained, never an error.
+6. **Findings are collected, sorted worst first, then reduced to one severity** —
+   the worst present. The order is part of the contract, not an accident of the
+   order things were detected in: `portfolio_report` will concatenate findings
+   from every check across a whole portfolio and needs them to arrive ranked. A
+   partial answer is a success with a gap explained, never an error.
 7. **The result carries both halves**: text for the person reading the
    conversation, and `structuredContent` validated against the output schema.
 

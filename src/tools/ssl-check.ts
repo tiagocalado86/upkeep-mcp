@@ -1,11 +1,17 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
-import { DEFAULT_EXPIRY_WARNING_DAYS } from '../lib/defaults.js';
+import { CERT_EXPIRY_WARNING_DAYS } from '../lib/defaults.js';
 import { parseTarget } from '../lib/domain-name.js';
 import { CheckError } from '../lib/errors.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
-import { daysUntil, expirySeverity, finding, worstSeverity } from '../lib/severity.js';
+import {
+  daysUntil,
+  expirySeverity,
+  finding,
+  sortFindings,
+  worstSeverity,
+} from '../lib/severity.js';
 import type { TlsInspection } from '../lib/tls.js';
 import { fail, guard, succeed } from '../lib/tool-result.js';
 import type { Finding } from '../types.js';
@@ -158,7 +164,7 @@ export async function runSslCheck(input: Input, ports: Ports): Promise<CallToolR
   const wwwResolves = dnsResult.status === 'fulfilled' ? dnsResult.value.wwwResolves : false;
   const leaf = inspection.chain.leaf;
   const daysUntilExpiry = daysUntil(leaf?.validTo ?? null, now);
-  const severity = expirySeverity(daysUntilExpiry, DEFAULT_EXPIRY_WARNING_DAYS);
+  const severity = expirySeverity(daysUntilExpiry, CERT_EXPIRY_WARNING_DAYS);
 
   const coverage = {
     subjectAltName: inspection.subjectAltName,
@@ -169,16 +175,18 @@ export async function runSslCheck(input: Input, ports: Ports): Promise<CallToolR
     wwwResolves,
   };
 
-  const findings = collectFindings({
-    host: target.ascii,
-    port,
-    inspection,
-    coverage,
-    daysUntilExpiry,
-    severity,
-    apex,
-    www,
-  });
+  const findings = sortFindings(
+    collectFindings({
+      host: target.ascii,
+      port,
+      inspection,
+      coverage,
+      daysUntilExpiry,
+      severity,
+      apex,
+      www,
+    }),
+  );
 
   const result = {
     host: target.ascii,
@@ -234,7 +242,12 @@ export function registerSslCheckTool(server: McpServer, ports: Ports = createDef
         '',
         'Certificates that are expired, self-signed or untrusted are inspected and reported rather',
         'than refused. Revocation is not checked: Node performs no CRL or OCSP lookup, so a revoked',
-        'certificate will be reported as a valid chain. Returns findings ordered by urgency.',
+        'certificate will be reported as a valid chain.',
+        '',
+        'A certificate is reported as a warning inside 14 days and as critical inside seven.',
+        'That window is deliberately shorter than the one domain_check uses for registrations:',
+        'ACME clients renew with 30 days left, so 28 days remaining is a healthy site in the',
+        'middle of a normal renewal, not a problem. Returns findings ordered by urgency, worst first.',
       ].join('\n'),
       inputSchema,
       outputSchema,
@@ -265,14 +278,25 @@ interface FindingInputs {
  * Judges a certificate.
  *
  * @param inputs Everything the handshake and DNS established.
- * @returns Findings, in the order they were detected.
+ * @returns Findings in the order they were detected. The caller orders them.
  * @throws Never.
  */
 function collectFindings(inputs: FindingInputs): Finding[] {
   const findings: Finding[] = [];
   const { inspection, coverage, daysUntilExpiry, severity } = inputs;
 
-  if (daysUntilExpiry !== null && severity !== 'ok') {
+  if (daysUntilExpiry === null) {
+    // Not `ok`: the check failed to establish the date, which is not the same
+    // as establishing that the date is fine. Left as `ok` it would read in a
+    // portfolio report as a certificate with nothing wrong with it.
+    findings.push(
+      finding(
+        'cert_dates_unavailable',
+        'unknown',
+        `The certificate served by ${inputs.host} has no readable expiry date.`,
+      ),
+    );
+  } else if (severity !== 'ok') {
     findings.push(
       daysUntilExpiry < 0
         ? finding(

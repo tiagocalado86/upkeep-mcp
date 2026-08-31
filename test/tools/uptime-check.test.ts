@@ -138,7 +138,63 @@ describe('runUptimeCheck', () => {
       }),
     );
 
-    expect(findingCodes(result)).toContain('client_error');
+    expect(findingCodes(result)).toContain('page_not_found');
+    expect(structured(result)['severity']).toBe('critical');
+  });
+
+  it('treats a 403 as a warning, not a critical: a staging site answers that by design', async () => {
+    const result = await runUptimeCheck(
+      { url: 'https://staging.example.com/' },
+      fakePorts({
+        hops: {
+          'https://staging.example.com/': {
+            status: 403,
+            headers: { 'strict-transport-security': HSTS },
+          },
+          'http://staging.example.com/': { status: 301, location: 'https://staging.example.com/' },
+        },
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('access_restricted');
+    expect(findingCodes(result)).not.toContain('client_error');
+    expect(structured(result)['severity']).toBe('warning');
+  });
+
+  it('reports a 429 as unknown, since a throttled check establishes nothing', async () => {
+    const result = await runUptimeCheck(
+      { url: 'https://example.com/' },
+      fakePorts({
+        hops: {
+          'https://example.com/': { status: 429, headers: { 'strict-transport-security': HSTS } },
+          'http://example.com/': { status: 301, location: 'https://example.com/' },
+        },
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('rate_limited');
+    expect(structured(result)['severity']).toBe('unknown');
+  });
+
+  it('orders findings worst first, whatever order they were detected in', async () => {
+    const result = await runUptimeCheck(
+      { url: 'https://example.com/' },
+      fakePorts({
+        hops: {
+          // A long chain (info) is detected before the missing HSTS (warning).
+          'https://example.com/': { status: 302, location: 'https://example.com/a' },
+          'https://example.com/a': { status: 302, location: 'https://example.com/b' },
+          'https://example.com/b': { status: 302, location: 'https://example.com/c' },
+          'https://example.com/c': { status: 200 },
+          'http://example.com/': { status: 301, location: 'https://example.com/' },
+        },
+      }),
+    );
+
+    const codes = findingCodes(result);
+    expect(codes).toContain('hsts_missing');
+    expect(codes).toContain('redirect_chain_long');
+    expect(codes.indexOf('hsts_missing')).toBeLessThan(codes.indexOf('redirect_chain_long'));
   });
 
   it('warns when plain HTTP does not move visitors to HTTPS', async () => {

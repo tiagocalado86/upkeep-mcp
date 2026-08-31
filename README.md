@@ -153,6 +153,9 @@ that does less.
   processing time.
 - **`uptime_check` fetches one page, not a site.** Crawling arrives with
   `seo_audit`.
+- **Certificates and domains are judged on different clocks.** A registration is
+  a warning inside 30 days; a certificate only inside 14. ACME clients renew with
+  30 days left, so warning that early would fire on nearly every healthy site.
 
 ## Documentation
 
