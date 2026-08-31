@@ -21,6 +21,20 @@ afterEach(async () => {
   await agent.close();
 });
 
+describe('the offline guarantee', () => {
+  it('blocks a request nobody intercepted instead of letting it reach the network', async () => {
+    // This suite's whole premise is that disableNetConnect() holds. Some undici
+    // versions have let real requests through, which would turn every other test
+    // here into a silent live network call, so it is asserted rather than assumed.
+    const error = await httpHop('https://example.com/', 1000).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(CheckError);
+    expect((error as CheckError).message).toMatch(
+      /Mock dispatch not matched|not supported|connect/i,
+    );
+  });
+});
+
 describe('httpHop', () => {
   it('returns the status without following the redirect', async () => {
     agent
