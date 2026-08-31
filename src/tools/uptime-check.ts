@@ -13,6 +13,7 @@ import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
 import { fail, guard, succeed } from '../lib/tool-result.js';
+import { normaliseUrl } from '../lib/url.js';
 import type { Finding, HttpHop } from '../types.js';
 
 const inputSchema = z.object({
@@ -230,29 +231,6 @@ export function registerUptimeCheckTool(
     },
     guard((args: Input) => runUptimeCheck(args, ports)),
   );
-}
-
-/**
- * Accepts a URL or a bare hostname.
- *
- * A bare hostname is tried over HTTPS: defaulting to plain HTTP would make every
- * such check report an upgrade redirect as though it were the site's real
- * behaviour.
- *
- * @param input Whatever the caller passed.
- * @returns The URL, or `null` when nothing usable could be made of it.
- * @throws Never.
- */
-function normaliseUrl(input: string): URL | null {
-  const trimmed = input.trim();
-  if (trimmed === '') return null;
-  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  try {
-    const url = new URL(candidate);
-    return url.hostname === '' ? null : url;
-  } catch {
-    return null;
-  }
 }
 
 /** The outcome of following a redirect chain. */

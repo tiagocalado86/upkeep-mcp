@@ -34,6 +34,10 @@ export const TIMEOUTS = {
   httpHopMs: 10_000,
   /** The whole redirect chain, however many hops it takes. */
   httpChainMs: 20_000,
+  /** Fetching one HTML document, reading of the body included. */
+  pageMs: 15_000,
+  /** Fetching `robots.txt` or a sitemap, which are small and should be quick. */
+  supportFileMs: 8_000,
 } as const;
 
 /** Cache lifetimes, in milliseconds. */
@@ -49,6 +53,12 @@ export const TTL = {
   rdapMs: 6 * 60 * 60_000,
   /** TLS probes. */
   tlsMs: 15 * 60_000,
+  /**
+   * `robots.txt`. Longer than DNS because it changes rarely, and every page a
+   * crawl touches has to consult it: caching is what keeps one audit from
+   * asking the same host over and over.
+   */
+  robotsMs: 30 * 60_000,
 } as const;
 
 /** Politeness limits applied to every outbound request. */
@@ -63,6 +73,25 @@ export const LIMITS = {
   maxRedirects: 10,
   /** Certificates walked before the chain walk gives up. */
   maxChainDepth: 12,
+  /**
+   * Bytes of an HTML document read before the rest is abandoned.
+   *
+   * Two mebibytes is far past any hand-written page and still small enough that
+   * a hostile endless response costs nothing. A truncated document is reported
+   * as truncated rather than analysed as if it were whole.
+   */
+  maxHtmlBytes: 2 * 1024 * 1024,
+  /** Bytes of a `robots.txt` or sitemap read before the rest is abandoned. */
+  maxSupportFileBytes: 512 * 1024,
+  /**
+   * Internal links whose status is checked on one audit.
+   *
+   * Every check is one request, paced by the per-host limiter, so this is the
+   * difference between an audit that answers in seconds and one that answers in
+   * minutes. Links beyond the cap are counted and reported as unchecked, never
+   * silently dropped.
+   */
+  maxLinksChecked: 25,
 } as const;
 
 /**

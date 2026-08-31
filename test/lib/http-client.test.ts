@@ -2,7 +2,7 @@ import { MockAgent, setGlobalDispatcher, type Dispatcher, getGlobalDispatcher } 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { USER_AGENT } from '../../src/lib/constants.js';
 import { CheckError } from '../../src/lib/errors.js';
-import { getJson, httpHop } from '../../src/lib/http-client.js';
+import { getJson, getText, httpHop } from '../../src/lib/http-client.js';
 
 let agent: MockAgent;
 let original: Dispatcher;
@@ -120,5 +120,73 @@ describe('getJson', () => {
     await expect(getJson('https://example.test/empty', 1000)).resolves.toMatchObject({
       body: null,
     });
+  });
+});
+
+describe('getText', () => {
+  it('returns the body, the final URL and a normalised content type', async () => {
+    agent
+      .get('https://example.test')
+      .intercept({ path: '/page', method: 'GET' })
+      .reply(200, '<h1>Hello</h1>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+
+    const result = await getText('https://example.test/page', 1000, 1024);
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe('<h1>Hello</h1>');
+    expect(result.contentType).toBe('text/html');
+    expect(result.truncated).toBe(false);
+  });
+
+  it('stops reading at the limit and says the body was cut off', async () => {
+    agent
+      .get('https://example.test')
+      .intercept({ path: '/huge', method: 'GET' })
+      .reply(200, 'x'.repeat(10_000), { headers: { 'content-type': 'text/plain' } });
+
+    const result = await getText('https://example.test/huge', 1000, 100);
+
+    // A hostile or merely careless host must not be able to make this allocate
+    // whatever it decides to send, however large a chunk it sends it in.
+    expect(result.body).toHaveLength(100);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('reads a body that exactly fills the limit without calling it truncated', async () => {
+    agent
+      .get('https://example.test')
+      .intercept({ path: '/exact', method: 'GET' })
+      .reply(200, 'x'.repeat(100), { headers: { 'content-type': 'text/plain' } });
+
+    const result = await getText('https://example.test/exact', 1000, 100);
+
+    expect(result.body).toHaveLength(100);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('sends the identifiable user agent', async () => {
+    agent
+      .get('https://example.test')
+      .intercept({ path: '/ua', method: 'GET', headers: { 'user-agent': USER_AGENT } })
+      .reply(200, 'ok');
+
+    await expect(getText('https://example.test/ua', 1000, 1024)).resolves.toMatchObject({
+      status: 200,
+    });
+  });
+
+  it('reports a timeout as a timeout, naming the deadline', async () => {
+    agent
+      .get('https://example.test')
+      .intercept({ path: '/slow', method: 'GET' })
+      .reply(200, 'ok')
+      .delay(50);
+
+    const error = await getText('https://example.test/slow', 10, 1024).catch(
+      (cause: unknown) => cause,
+    );
+
+    expect(error).toBeInstanceOf(CheckError);
+    expect((error as CheckError).code).toBe('timeout');
   });
 });

@@ -25,6 +25,134 @@ export interface JsonResult {
   body: unknown;
 }
 
+/** A text response, read up to a byte limit. */
+export interface TextResult {
+  /** The URL the response finally came from, after any redirects. */
+  url: string;
+  /** HTTP status code. */
+  status: number;
+  /** Response headers. */
+  headers: Headers;
+  /** The `Content-Type` header with any parameters stripped, lowercased. */
+  contentType: string | null;
+  /** The decoded body, cut off at the byte limit. */
+  body: string;
+  /** Whether the body was longer than the limit and was cut off. */
+  truncated: boolean;
+}
+
+/**
+ * Fetches a text document, following redirects, and stops reading at a limit.
+ *
+ * The limit is not a nicety. A response body is attacker-controlled length —
+ * a page that streams forever would otherwise hold this process until the
+ * deadline, having already allocated everything it sent — so the body is read
+ * in chunks and abandoned once it has produced enough to analyse.
+ *
+ * @param url Absolute URL to request.
+ * @param timeoutMs Deadline for the whole request, reading included.
+ * @param maxBytes Most bytes to read before giving up on the rest.
+ * @param accept Value for the `Accept` header.
+ * @returns The final URL, status, headers and as much of the body as was read.
+ * @throws {CheckError} `timeout` when the deadline passes, `network` otherwise.
+ */
+export async function getText(
+  url: string,
+  timeoutMs: number,
+  maxBytes: number,
+  accept = 'text/html,application/xhtml+xml,*/*;q=0.8',
+): Promise<TextResult> {
+  const deadline = AbortSignal.timeout(timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: deadline,
+      headers: { 'user-agent': USER_AGENT, accept },
+    });
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  }
+
+  let body: string;
+  let truncated: boolean;
+  try {
+    ({ body, truncated } = await readCapped(response, maxBytes));
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  }
+
+  return {
+    url: response.url === '' ? url : response.url,
+    status: response.status,
+    headers: response.headers,
+    contentType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? null,
+    body,
+    truncated,
+  };
+}
+
+/**
+ * Reads a response body up to a byte limit.
+ *
+ * @param response The response to drain.
+ * @param maxBytes Most bytes to keep.
+ * @returns The decoded text and whether anything was left unread.
+ * @throws Whatever the underlying stream throws; the caller categorises it.
+ */
+async function readCapped(
+  response: Response,
+  maxBytes: number,
+): Promise<{ body: string; truncated: boolean }> {
+  const stream = response.body;
+  if (stream === null) return { body: '', truncated: false };
+
+  // `@types/node` types a response stream as `ReadableStream<any>`, so the chunk
+  // type has to be pinned here. The Streams standard guarantees `Uint8Array`
+  // chunks from a response body; this asserts what the types decline to say,
+  // and it is the only place in the project that does.
+  const reader = stream.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
+
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // A chunk is whatever size the sender chose, so the last one is cut to
+      // the allowance rather than kept whole: without this the limit is
+      // "maxBytes plus one arbitrary chunk", which is not a limit.
+      const room = maxBytes - total;
+      const kept = value.byteLength > room ? value.subarray(0, room) : value;
+      chunks.push(kept);
+      total += kept.byteLength;
+      if (kept.byteLength < value.byteLength) truncated = true;
+    }
+    // Filling the allowance says nothing about whether more was coming, so the
+    // stream is asked once more rather than guessed at.
+    if (!truncated && total >= maxBytes) {
+      truncated = !(await reader.read()).done;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  // `fatal: false` so that a body cut mid-character, or one mislabelled by the
+  // server, degrades to a replacement character instead of failing the check.
+  return { body: new TextDecoder('utf-8', { fatal: false }).decode(merged), truncated };
+}
+
 /**
  * Performs one HTTP request without following redirects.
  *
