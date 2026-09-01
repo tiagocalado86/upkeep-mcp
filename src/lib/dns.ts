@@ -101,6 +101,35 @@ export async function resolveRecords(
 }
 
 /**
+ * Resolves just the addresses a hostname points at.
+ *
+ * Separate from {@link resolveRecords}, which asks eight questions: this asks
+ * the two that decide whether a host may be contacted at all, and is on the
+ * path of every request a public deployment makes.
+ *
+ * @param hostname Hostname in A-label form.
+ * @param timeoutMs Whole-operation deadline.
+ * @param createResolver Builds the resolver. Injected for tests.
+ * @returns Every address, IPv4 and IPv6 together. Empty when the name resolves
+ *   to nothing.
+ * @throws {CheckError} `timeout` when the deadline passes.
+ */
+export async function resolveAddresses(
+  hostname: string,
+  timeoutMs: number = TIMEOUTS.dnsMs,
+  createResolver: () => DnsResolver = defaultResolver,
+): Promise<string[]> {
+  const resolver = createResolver();
+  const work = Promise.all([
+    optional(() => resolver.resolve4(hostname)),
+    optional(() => resolver.resolve6(hostname)),
+  ]);
+
+  const [a, aaaa] = await withDeadline(work, resolver, timeoutMs, hostname);
+  return [...a, ...aaaa];
+}
+
+/**
  * @returns A resolver configured the way this project needs one.
  *
  * One try, because the resolver's own timeout is per attempt and backs off

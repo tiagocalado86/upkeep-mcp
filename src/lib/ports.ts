@@ -4,8 +4,9 @@ import type { DnsRecords } from '../types.js';
 import { CheckError } from './errors.js';
 import { createTtlCache } from './cache.js';
 import { LIMITS, TTL } from './defaults.js';
-import { hasDsRecord, resolveRecords } from './dns.js';
+import { hasDsRecord, resolveAddresses, resolveRecords } from './dns.js';
 import { getText, httpHop, type HttpHopResult, type TextResult } from './http-client.js';
+import { allowAnyTarget, allowOnlyPublicTargets, type TargetGuard } from './public-target.js';
 import { createMemoryHistory, type RunHistory } from './history.js';
 import { createHostLimiter } from './rate-limit.js';
 import { fetchRobots, type RobotsFetch } from './robots.js';
@@ -144,6 +145,19 @@ export function foundAnything(records: DnsRecords): boolean {
   );
 }
 
+/** How a set of ports treats the targets it is asked about. */
+export interface PortOptions {
+  /**
+   * Refuse anything that is not public unicast on port 443.
+   *
+   * Off by default, which is right for a server running on someone's own
+   * machine: pointing it at a staging box on the local network is exactly what
+   * a maintenance tool is for. The HTTP entrypoint turns it on, because the
+   * same freedom offered to strangers is an instance-metadata reader.
+   */
+  publicTargetsOnly?: boolean;
+}
+
 /**
  * Builds the real ports, with caching and per-host rate limiting wired in.
  *
@@ -151,11 +165,16 @@ export function foundAnything(records: DnsRecords): boolean {
  * asked about: twenty `.com` domains all reach `rdap.verisign.com`, and a
  * limiter keyed on the input would pace nothing.
  *
+ * @param options How to treat the targets. See {@link PortOptions}.
  * @returns Ports backed by real network I/O.
  * @throws Never.
  */
-export function createDefaultPorts(): Ports {
+export function createDefaultPorts(options: PortOptions = {}): Ports {
   const { dnsCache, dsCache, rdapCache, tlsCache, robotsCache, history, limiter } = sharedState();
+  const guard: TargetGuard =
+    options.publicTargetsOnly === true
+      ? allowOnlyPublicTargets((hostname) => resolveAddresses(hostname))
+      : allowAnyTarget();
 
   return {
     dns: {
@@ -190,25 +209,34 @@ export function createDefaultPorts(): Ports {
       },
     },
     tls: {
-      inspect: (host, port, names) =>
-        tlsCache.fetch(`${host}:${String(port)}|${names.join(',')}`, () =>
+      inspect: async (host, port, names) => {
+        guard.assertPort(port);
+        await guard.assertPublic(host);
+        return tlsCache.fetch(`${host}:${String(port)}|${names.join(',')}`, () =>
           limiter.run(host, () => inspectTls(host, port, names)),
-        ),
+        );
+      },
     },
     http: {
       // Never cached: caching an uptime check defeats the tool.
-      hop: (url, timeoutMs, signal) =>
-        limiter.run(new URL(url).host, () => httpHop(url, timeoutMs, signal)),
-      text: (url, timeoutMs, maxBytes) =>
-        limiter.run(new URL(url).host, () => getText(url, timeoutMs, maxBytes)),
+      hop: async (url, timeoutMs, signal) => {
+        await guard.assertPublic(new URL(url).hostname);
+        return limiter.run(new URL(url).host, () => httpHop(url, timeoutMs, signal));
+      },
+      text: async (url, timeoutMs, maxBytes) => {
+        await guard.assertPublic(new URL(url).hostname);
+        return limiter.run(new URL(url).host, () => getText(url, timeoutMs, maxBytes));
+      },
     },
     robots: {
       // Cached per origin: an audit consults the rules before every request it
       // makes, and asking the host each time would be the opposite of polite.
-      forOrigin: (origin) =>
-        robotsCache.fetch(origin, () =>
+      forOrigin: async (origin) => {
+        await guard.assertPublic(new URL(origin).hostname);
+        return robotsCache.fetch(origin, () =>
           limiter.run(new URL(origin).host, () => fetchRobots(origin)),
-        ),
+        );
+      },
     },
     files: { readText: readTextFile },
     history,

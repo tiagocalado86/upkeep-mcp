@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A target guard for public deployments: `createDefaultPorts({ publicTargetsOnly:
+true })` refuses any host resolving outside public unicast space — loopback,
+  private ranges, and the link-local address where cloud metadata lives — and
+  opens no port but 443. Off by default, because a local operator pointing the
+  tool at their own staging box is the tool working as intended. See
+  `docs/adr/0012-public-target-guard.md`, which also states the gap it leaves.
 - `docs/prior-art.md`: the MCP servers that already check certificates, domains,
   uptime and accessibility, what several of them do better than this one, and
   the gap none of them fills — every one answers about a single target, and

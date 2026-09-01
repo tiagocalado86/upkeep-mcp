@@ -65,6 +65,15 @@ request carries a `User-Agent` naming this project and linking to it.
 brute-forcing, no vulnerability probing, no attempt to bypass authentication or
 access controls. It inspects public configuration and reports on it.
 
+**A public instance contacts only the public internet.** Run locally, the tool
+does what the person running it asks, including checking a staging box on their
+own network. Run as a public endpoint it refuses any target resolving outside
+public unicast space — loopback, private ranges, and the link-local address
+where cloud metadata services live — and opens no port but 443, because an
+endpoint that connects anywhere on request is a port scanner with someone else's
+name on it. The limits of that guard, including the one it does not close, are
+in [`docs/adr/0012`](docs/adr/0012-public-target-guard.md).
+
 **It behaves politely on the network.** `robots.txt` is respected on any page
 crawl, requests are rate-limited per host, concurrency is bounded, every network
 operation has an explicit timeout, and the `User-Agent` identifies the tool with
