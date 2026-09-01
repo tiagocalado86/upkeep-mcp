@@ -34,8 +34,10 @@ describe('nothing handles credentials', () => {
   it('never reads the environment', () => {
     // Principle 1: no API keys, tokens or passwords, for any service. The way
     // that rule usually dies is a well-meaning `process.env.SOMETHING_KEY`.
+    // Comments are stripped: a file explaining that it does not read the
+    // environment is not a file reading the environment.
     for (const { path, text } of sources) {
-      expect(text.includes('process.env'), `${path} reads process.env`).toBe(false);
+      expect(code(text).includes('process.env'), `${path} reads process.env`).toBe(false);
     }
   });
 
@@ -64,8 +66,16 @@ describe('no tool performs I/O directly', () => {
 
   it('keeps every builtin out of src/tools, src/resources and src/prompts', () => {
     // The structural claim behind the ports: a tool can only reach the network
-    // through an interface a test can replace.
-    const callers = sources.filter(({ path }) => !path.startsWith('src/lib'));
+    // through an interface a test can replace. Entrypoints are exempt by
+    // definition — `src/index.ts` and `src/http.ts` exist to do I/O — and they
+    // register tools rather than implementing any.
+    const callers = sources.filter(
+      ({ path }) =>
+        path.startsWith('src/tools') ||
+        path.startsWith('src/resources') ||
+        path.startsWith('src/prompts'),
+    );
+    expect(callers.length).toBeGreaterThan(5);
 
     for (const { path, text } of callers) {
       for (const builtin of forbidden) {

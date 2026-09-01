@@ -189,6 +189,25 @@ Add the server to `claude_desktop_config.json`:
 Restart the client and ask it to run the `health` tool. It answers with the
 server version, the Node.js version and how long the process has been up.
 
+### Over HTTP
+
+The server also speaks the Streamable HTTP transport, for a public demo
+instance:
+
+```bash
+npm run build
+npm run start:http -- --port 8080
+```
+
+Point an MCP client at `/mcp` on that host. The HTTP entrypoint is not the stdio
+one with a socket attached: a stranger is not the person who started the
+process, so it contacts **only public addresses, only on port 443**, and admits
+traffic through a per-caller rate limit. That means it will refuse to check
+anything on your own network — use the stdio server for that.
+[`docs/deploying.md`](docs/deploying.md) covers running it on Google Cloud Run,
+and [`docs/adr/0012`](docs/adr/0012-public-target-guard.md) explains the guard
+and what it does not close.
+
 ## Security & privacy
 
 This server never asks for, accepts or stores credentials. It reads only
@@ -256,6 +275,8 @@ that does less.
   is tested without a network
 - [`docs/prior-art.md`](docs/prior-art.md) — the MCP servers that already do parts
   of this, what they do better, and the gap this one fills
+- [`docs/deploying.md`](docs/deploying.md) — running the HTTP instance, and what
+  is different about it
 - [`docs/adr/`](docs/adr/) — one short record per structural decision
 - [`SECURITY.md`](SECURITY.md) — threat model and reporting policy
 - [`CHANGELOG.md`](CHANGELOG.md)

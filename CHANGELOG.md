@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A Streamable HTTP entrypoint, `src/http.ts`, for a public demo instance: the
+  SDK's own handler behind a hand-written `node:http` adapter, so no HTTP
+  framework joins the dependency list. It builds its tools on guarded ports,
+  admits callers through a token bucket (60 a minute, burst of 20, 8 in flight
+  across everyone), caps request bodies, answers a browser with a plain-text
+  page, and shuts down cleanly on SIGTERM. The port comes from `--port`, never
+  from the environment.
+- A Dockerfile and `docs/deploying.md` for Google Cloud Run, chosen because it
+  runs an ordinary container: edge runtimes cannot read a peer certificate, so
+  `ssl_check` would be dead there while everything else looked fine.
 - A target guard for public deployments: `createDefaultPorts({ publicTargetsOnly:
 true })` refuses any host resolving outside public unicast space — loopback,
   private ranges, and the link-local address where cloud metadata lives — and

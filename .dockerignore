@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.git
+.github
+test
+examples
+docs
+*.md
+sites.json
+sites.local.json
+PROJECT_BRIEF.md
+NOTES.md
+.claude

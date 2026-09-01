@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { SERVER_NAME, SERVER_VERSION } from './lib/constants.js';
+import { createDefaultPorts, type Ports } from './lib/ports.js';
 import { registerDomainCheckTool } from './tools/domain-check.js';
 import { registerQuarterlyReportPrompt } from './prompts/quarterly-report.js';
 import { registerPortfolioSitesResource } from './resources/portfolio-sites.js';
@@ -16,20 +17,23 @@ import { registerUptimeCheckTool } from './tools/uptime-check.js';
  * entrypoints instantiate one server per connection: two clients must not share
  * mutable per-connection state.
  *
+ * @param ports The I/O boundary every tool reaches through. Passed in so that
+ *   the HTTP entrypoint can hand every tool a guarded set at once — the policy
+ *   for a public deployment is decided here, not tool by tool.
  * @returns A ready-to-serve {@link McpServer}.
  * @throws Never.
  */
-export function createServer(): McpServer {
+export function createServer(ports: Ports = createDefaultPorts()): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
   registerHealthTool(server);
-  registerDomainCheckTool(server);
-  registerSslCheckTool(server);
-  registerUptimeCheckTool(server);
-  registerSeoAuditTool(server);
-  registerPortfolioReportTool(server);
+  registerDomainCheckTool(server, ports);
+  registerSslCheckTool(server, ports);
+  registerUptimeCheckTool(server, ports);
+  registerSeoAuditTool(server, ports);
+  registerPortfolioReportTool(server, ports);
 
-  registerPortfolioSitesResource(server);
+  registerPortfolioSitesResource(server, ports);
   registerQuarterlyReportPrompt(server);
 
   return server;
