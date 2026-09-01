@@ -27,7 +27,7 @@ Structured content:
 {
   "url": "https://example.com/",
   "finalUrl": "https://example.com/",
-  "checkedAt": "2026-09-01T09:48:54.832Z",
+  "checkedAt": "2026-09-01T11:13:39.475Z",
   "severity": "warning",
   "findings": [
     {

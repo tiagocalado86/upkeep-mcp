@@ -133,7 +133,7 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-No change since 2026-09-01T09:49:19.079Z (1 of 5 sites comparable).
+No change since 2026-09-01T11:13:18.171Z (1 of 5 sites comparable; 4 of them measured different checks last time — run two full reports back to back to compare them).
 
 Nothing to do: Campaign Microsite.
 ```
@@ -142,13 +142,13 @@ Nothing is down. Legacy Shop is the `1 unknown`: the request cannot complete
 while the certificate is refused, and a check that established nothing is
 reported as unknown rather than as a failure.
 
-Read the comparison line carefully, because it is doing real work. This run
-measured only uptime, so it could be compared against the full run on one site —
-Example Net, the only one that asked for uptime alone both times. The other four
-measured different things in the two runs and were not compared at all. That is
-deliberate: comparing an uptime-only pass against a full run would have
-announced that Legacy Shop's expired certificate had improved from critical to
-fine, purely because this run never looked at it.
+The comparison line says what it did and what it could not do. This run measured
+only uptime, so it could be compared on one site — Example Net, the only one
+that asked for uptime alone both times. The other four measured different things
+in the two runs and were not compared at all. That is deliberate: comparing an
+uptime-only pass against a full run would have announced that Legacy Shop's
+expired certificate had improved from critical to fine, purely because this run
+never looked at it.
 
 Example Foundation also picked up two warnings it did not have before. It did
 not get worse — the first run never checked its uptime.
@@ -178,15 +178,16 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-No change since 2026-09-01T09:49:21.224Z (1 of 5 sites comparable).
+No change since 2026-09-01T11:13:20.355Z (1 of 5 sites comparable; 4 of them measured different checks last time — run two full reports back to back to compare them).
 ```
 
 It is not fixed. The same certificate, the same expiry date, still refused.
 
-Note what the comparison says here too: the previous run in this session was the
-uptime-only pass, and only one site is comparable against it. The history holds
-the last run, not a series, so a quick pass between two full runs is what gets
-compared against. To compare two full runs, run them back to back.
+Note what the comparison says here too, and that it says it without being asked:
+the previous run in this session was the uptime-only pass, so only one site is
+comparable against it. The history holds the last run, not a series, so a quick
+pass between two full runs is what gets compared against — which is why the line
+ends by naming the fix.
 
 ---
 
@@ -214,7 +215,8 @@ that quietly omits Legacy Shop would read better and be worse.
 - A site that cannot be checked is a finding, not a failed report. Legacy Shop's
   uptime check could not run, and the report says so instead of reporting the
   site as fine or giving up on the other four.
-- The comparison against the previous run refuses to compare unlike runs, and
-  says how many sites it could compare. See
+- The comparison against the previous run refuses to compare unlike runs, says
+  how many sites it could compare, why the rest were left out, and what to do
+  about it. See
   [`docs/adr/0011-in-memory-run-history.md`](../docs/adr/0011-in-memory-run-history.md).
 - Nothing here needed a credential, and nothing was written to disk.

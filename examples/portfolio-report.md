@@ -26,7 +26,7 @@ Structured content:
 
 ```json
 {
-  "generatedAt": "2026-09-01T09:48:55.871Z",
+  "generatedAt": "2026-09-01T11:13:40.513Z",
   "source": "inline",
   "file": null,
   "siteCount": 3,
@@ -76,6 +76,8 @@ Structured content:
     "comparedWithPreviousRun": false,
     "previousRunAt": null,
     "sitesCompared": 0,
+    "sitesMeasuredDifferently": 0,
+    "sitesNewSincePreviousRun": 0,
     "regressed": [],
     "improved": [],
     "newFindings": []
@@ -135,7 +137,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.com/ answered 200 in 19ms.",
+          "headline": "https://example.com/ answered 200 in 23ms.",
           "error": null
         }
       ]
@@ -179,7 +181,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.net/ answered 200 in 89ms.",
+          "headline": "https://example.net/ answered 200 in 99ms.",
           "error": null
         }
       ]

@@ -26,7 +26,7 @@ Structured content:
 {
   "host": "expired.badssl.com",
   "port": 443,
-  "checkedAt": "2026-09-01T09:48:53.782Z",
+  "checkedAt": "2026-09-01T11:13:38.404Z",
   "severity": "critical",
   "findings": [
     {

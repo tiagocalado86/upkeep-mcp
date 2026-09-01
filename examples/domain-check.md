@@ -22,7 +22,7 @@ Structured content:
   "domain": "example.com",
   "unicodeDomain": null,
   "registrableDomain": "example.com",
-  "checkedAt": "2026-09-01T09:48:53.504Z",
+  "checkedAt": "2026-09-01T11:13:38.169Z",
   "severity": "ok",
   "findings": [],
   "registration": {
@@ -45,12 +45,12 @@ Structured content:
     "apexResolves": true,
     "wwwResolves": true,
     "a": [
-      "104.20.23.154",
-      "172.66.147.243"
+      "172.66.147.243",
+      "104.20.23.154"
     ],
     "aaaa": [
-      "2606:4700:10::ac42:93f3",
-      "2606:4700:10::6814:179a"
+      "2606:4700:10::6814:179a",
+      "2606:4700:10::ac42:93f3"
     ],
     "ns": [
       "elliott.ns.cloudflare.com",
@@ -63,8 +63,8 @@ Structured content:
       }
     ],
     "txt": [
-      "_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9",
-      "v=spf1 -all"
+      "v=spf1 -all",
+      "_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9"
     ],
     "caa": []
   },

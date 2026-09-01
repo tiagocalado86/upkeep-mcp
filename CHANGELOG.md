@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `portfolio_report` now says _why_ it could not compare part of a run, not only
+  how much of it: `1 of 5 sites comparable; 4 of them measured different checks
+last time — run two full reports back to back to compare them`. The count on its
+  own reads as a fault and leaves the reader to guess; the reason, and the fix,
+  do not. Sites the previous run did not check at all are counted separately,
+  and both counts are in the structured output.
+
 ## [0.3.1] - 2026-09-01
 
 ### Added

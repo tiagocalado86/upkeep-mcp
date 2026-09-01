@@ -185,6 +185,15 @@ const outputSchema = z.object({
             'when both runs measured the same checks: comparing a quick uptime-only pass with a ' +
             'full run would invent regressions, or hide them.',
         ),
+      sitesMeasuredDifferently: z
+        .int()
+        .describe(
+          'Sites the previous run also checked, but with different checks, so they were not ' +
+            'compared. Two full runs back to back compare everything.',
+        ),
+      sitesNewSincePreviousRun: z
+        .int()
+        .describe('Sites the previous run did not check at all, so there is nothing to compare.'),
       regressed: z
         .array(z.object({ site: z.string(), from: severitySchema, to: severitySchema }))
         .describe('Sites that got worse since the previous run.'),
@@ -642,6 +651,8 @@ interface Changes {
   comparedWithPreviousRun: boolean;
   previousRunAt: string | null;
   sitesCompared: number;
+  sitesMeasuredDifferently: number;
+  sitesNewSincePreviousRun: number;
   regressed: { site: string; from: Severity; to: Severity }[];
   improved: { site: string; from: Severity; to: Severity }[];
   newFindings: { site: string; code: string }[];
@@ -664,6 +675,8 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
       comparedWithPreviousRun: false,
       previousRunAt: null,
       sitesCompared: 0,
+      sitesMeasuredDifferently: 0,
+      sitesNewSincePreviousRun: 0,
       regressed: [],
       improved: [],
       newFindings: [],
@@ -674,17 +687,27 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
   const improved: Changes['improved'] = [];
   const newFindings: Changes['newFindings'] = [];
   let sitesCompared = 0;
+  // Counted, not just skipped: a report saying "1 of 5 comparable" without
+  // saying why leaves the reader to guess whether something went wrong.
+  let sitesMeasuredDifferently = 0;
+  let sitesNewSincePreviousRun = 0;
 
   for (const site of sites) {
     const before = previous.sites[keyOf(site)];
-    if (before === undefined) continue;
+    if (before === undefined) {
+      sitesNewSincePreviousRun += 1;
+      continue;
+    }
 
     // Only like with like. Two runs of the same site that measured different
     // things are not comparable, and pretending otherwise turns a quick
     // uptime-only pass into a page of invented regressions — or, run the other
     // way round, into "improved: critical → ok" for a certificate that still
     // expires in three days.
-    if (!sameChecks(site, before.checks)) continue;
+    if (!sameChecks(site, before.checks)) {
+      sitesMeasuredDifferently += 1;
+      continue;
+    }
     sitesCompared += 1;
 
     const movement = SEVERITY_ORDER[site.severity] - SEVERITY_ORDER[before.severity];
@@ -703,6 +726,8 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
     comparedWithPreviousRun: sitesCompared > 0,
     previousRunAt: sitesCompared > 0 ? previous.takenAt : null,
     sitesCompared,
+    sitesMeasuredDifferently,
+    sitesNewSincePreviousRun,
     regressed,
     improved,
     newFindings,
@@ -752,6 +777,41 @@ function snapshotOf(sites: readonly SiteResult[], now: Date): RunSnapshot {
  */
 function keyOf(site: { name: string; url: string }): string {
   return `${site.name}\u0000${site.url}`;
+}
+
+/**
+ * Says how much of this run could be compared, and why the rest could not.
+ *
+ * The count alone raises the question it does not answer: a reader told that
+ * one site in five was comparable cannot tell whether something went wrong or
+ * whether they simply ran a quick pass in between, and the fix — two full runs
+ * back to back — is not something they would guess.
+ *
+ * @param siteCount How many sites this run checked.
+ * @param changes What the comparison found.
+ * @returns A parenthetical phrase, without the parentheses.
+ * @throws Never.
+ */
+function comparability(siteCount: number, changes: Changes): string {
+  const parts = [
+    `${String(changes.sitesCompared)} of ${String(siteCount)} ` +
+      `site${siteCount === 1 ? '' : 's'} comparable`,
+  ];
+
+  if (changes.sitesMeasuredDifferently > 0) {
+    parts.push(
+      `${String(changes.sitesMeasuredDifferently)} of them measured different checks last time — ` +
+        `run two full reports back to back to compare them`,
+    );
+  }
+  if (changes.sitesNewSincePreviousRun > 0) {
+    parts.push(
+      `${String(changes.sitesNewSincePreviousRun)} of them ` +
+        `${changes.sitesNewSincePreviousRun === 1 ? 'was' : 'were'} not in the previous run`,
+    );
+  }
+
+  return parts.join('; ');
 }
 
 /**
@@ -821,9 +881,7 @@ function summarise(report: {
       'Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.',
     );
   } else {
-    const compared =
-      `${String(changes.sitesCompared)} of ${String(report.siteCount)} ` +
-      `site${report.siteCount === 1 ? '' : 's'} comparable`;
+    const compared = comparability(report.siteCount, changes);
     if (
       changes.regressed.length === 0 &&
       changes.improved.length === 0 &&

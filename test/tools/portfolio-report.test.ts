@@ -442,6 +442,46 @@ describe('runPortfolioReport', () => {
     expect(text(second)).toContain('2 of 2 sites comparable');
   });
 
+  it('says why the sites it could not compare were not compared', async () => {
+    const history = createMemoryHistory();
+    const fixtures = { 'healthy.example': {}, 'urgent.example': {}, 'quick.example': {} };
+    const quick = {
+      name: 'Quick Ltd',
+      url: 'https://quick.example',
+      checks: ['uptime'] as CheckName[],
+    };
+
+    await runPortfolioReport(
+      { sites: [...TWO_SITES, quick] },
+      portfolioPorts(fixtures, { history }),
+    );
+
+    // An uptime-only pass after a full run: only the site that asked for uptime
+    // alone both times is comparable, and a fourth site is new.
+    const second = await runPortfolioReport(
+      {
+        sites: [
+          ...TWO_SITES,
+          quick,
+          { name: 'New Ltd', url: 'https://new.example', checks: ['uptime'] as CheckName[] },
+        ],
+        checks: ['uptime'] as CheckName[],
+      },
+      portfolioPorts({ ...fixtures, 'new.example': {} }, { history }),
+    );
+
+    expect(structured(second)['changes']).toMatchObject({
+      sitesCompared: 1,
+      sitesMeasuredDifferently: 2,
+      sitesNewSincePreviousRun: 1,
+    });
+    // The count alone reads as a fault. The reason, and the fix, do not.
+    expect(text(second)).toContain('1 of 4 sites comparable');
+    expect(text(second)).toContain('2 of them measured different checks last time');
+    expect(text(second)).toContain('run two full reports back to back');
+    expect(text(second)).toContain('1 of them was not in the previous run');
+  });
+
   it('names a finding that appeared without the site changing severity', async () => {
     const history = createMemoryHistory();
     const sites = [
