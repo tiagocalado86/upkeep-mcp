@@ -77,8 +77,21 @@ server.listen(port, () => {
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
 
-  if (url.pathname !== MCP_PATH) {
+  if (url.pathname === '/') {
     respond(response, 200, 'text/plain; charset=utf-8', landingPage());
+    return;
+  }
+
+  if (url.pathname !== MCP_PATH) {
+    // Answering every path with the landing page told a crawler, a browser
+    // asking for a favicon, and a person with a typo that they had found
+    // something. Only one path here serves anything.
+    respond(
+      response,
+      404,
+      'text/plain; charset=utf-8',
+      `nothing here. The MCP endpoint is ${MCP_PATH}\n`,
+    );
     return;
   }
 

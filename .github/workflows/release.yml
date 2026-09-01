@@ -1,0 +1,56 @@
+# Publishes to npm when a version tag is pushed.
+#
+# The package and the repository drift apart the moment publishing is a thing
+# someone remembers to do by hand, so it is wired to the tag instead. The gate
+# runs again here rather than trusting the tag: a tag can be pushed from a dirty
+# tree, and `npm publish` is not reversible.
+#
+# One-time setup: an npm automation token in the repository secret NPM_TOKEN.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # Provenance ties the published tarball to this workflow and this commit, so
+  # anyone can verify that what is on npm was built from what is on GitHub.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+
+      - name: Check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      # Refuses to publish a tag whose version does not match package.json,
+      # which is the mistake this workflow would otherwise automate.
+      - name: Tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          packaged="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$packaged" ]; then
+            echo "tag $tag does not match package.json version $packaged" >&2
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

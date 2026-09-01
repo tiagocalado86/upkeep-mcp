@@ -168,6 +168,32 @@ docs **in the same commit** — never leave it for later.
 - Never commit a real client domain, a real `sites.json`, or anything
   resembling a credential — including in a test fixture or a commit message.
 
+## Releasing
+
+Publishing is wired to the tag, because a package that is published by hand is a
+package that ends up behind the repository.
+
+1. Update `CHANGELOG.md`: move `[Unreleased]` into a new version section, and add
+   the compare link at the bottom.
+2. `npm version <x.y.z> --no-git-tag-version`, then set `SERVER_VERSION` in
+   `src/lib/constants.ts` and the two versions in `server.json` to match. Tests
+   fail if any of them drift.
+3. `npm run check`, commit, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push with
+   `--follow-tags`.
+4. `.github/workflows/release.yml` runs the whole gate again, refuses a tag whose
+   version does not match `package.json`, and publishes with `--provenance`, so
+   the tarball on npm is tied to the commit it was built from.
+
+One-time setup: an npm automation token in the repository secret `NPM_TOKEN`.
+The first release has to be published by hand — `npm publish --access public` —
+because a token cannot be issued for a package that does not exist yet.
+
+The listing in the [MCP registry](https://registry.modelcontextprotocol.io) is
+separate and manual: `mcp-publisher login github` then `mcp-publisher publish`,
+which reads `server.json`. Only the npm package is listed there, never a demo
+URL: the registry removes servers that stop answering, and this project makes no
+availability promise about any instance of it.
+
 ## Reporting bugs and vulnerabilities
 
 Bugs go in a GitHub issue with the input you used and what you expected.

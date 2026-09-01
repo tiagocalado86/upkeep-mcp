@@ -27,7 +27,8 @@ It also exposes the `portfolio://sites` resource (the site list, for a client to
 read without spending a tool call) and the `quarterly_report` prompt (turns a
 portfolio run into the report a client actually reads).
 
-Not published to npm yet — install from source, as below.
+Published on npm, so it installs with one command — see
+[Installation](#installation).
 
 ## What it looks like
 
@@ -154,7 +155,9 @@ half a second per host.
 
 The portfolio file format is documented in
 [`sites.example.json`](sites.example.json). Copy it to `sites.json` — which is
-gitignored, so a real client list never gets committed.
+gitignored, so a real client list never gets committed. `file` is resolved
+against the directory the client started the server in, so give the full path
+when that directory is not yours.
 
 ### `accessibility_audit`
 
@@ -176,19 +179,13 @@ usable — which is why the count of undecided rules is reported alongside.
 
 ## Installation
 
-Requires **Node.js 22 or newer**.
-
-```bash
-git clone https://github.com/tiagocalado86/upkeep-mcp.git
-cd upkeep-mcp
-npm install
-npm run build
-```
+Requires **Node.js 22 or newer**. Nothing else: installing downloads no browser,
+and every check works without one except `accessibility_audit`.
 
 ### Claude Code
 
 ```bash
-claude mcp add upkeep -- node /absolute/path/to/upkeep-mcp/dist/index.js
+claude mcp add upkeep -- npx -y upkeep-mcp
 ```
 
 ### Claude Desktop
@@ -199,8 +196,8 @@ Add the server to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "upkeep": {
-      "command": "node",
-      "args": ["/absolute/path/to/upkeep-mcp/dist/index.js"]
+      "command": "npx",
+      "args": ["-y", "upkeep-mcp"]
     }
   }
 }
@@ -208,6 +205,23 @@ Add the server to `claude_desktop_config.json`:
 
 Restart the client and ask it to run the `health` tool. It answers with the
 server version, the Node.js version and how long the process has been up.
+
+A desktop client starts a server in a directory of its own choosing, usually
+`/`. That matters for one thing only: `portfolio_report` and the
+`portfolio://sites` resource look for `sites.json` there. Pass `sites` inline,
+or give `portfolio_report` the full path — `file: "/Users/you/sites.json"`.
+
+### From source
+
+For development, or to run a branch:
+
+```bash
+git clone https://github.com/tiagocalado86/upkeep-mcp.git
+cd upkeep-mcp
+npm install
+npm run build
+claude mcp add upkeep -- node /absolute/path/to/upkeep-mcp/dist/index.js
+```
 
 ### Over HTTP
 

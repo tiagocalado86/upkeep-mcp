@@ -96,6 +96,15 @@ describe('the HTTP entrypoint', () => {
     expect(text).toContain('/mcp');
   });
 
+  it('answers an unknown path with 404, not with the landing page', async () => {
+    // Answering everything with 200 told a crawler and a browser asking for a
+    // favicon that they had found something.
+    const response = await fetch(`${BASE}/favicon.ico`);
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toContain('/mcp');
+  });
+
   it('serves the same tools as the stdio entrypoint', async () => {
     const { body } = await call('tools/list');
     const tools = (body.result?.['tools'] ?? []) as { name: string }[];

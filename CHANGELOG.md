@@ -7,8 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-01
+
+### Added
+
+- Published to npm, so installation is `npx -y upkeep-mcp` rather than four
+  steps — the brief's first definition-of-done line, and the last one open.
+  `playwright-core` downloads no browser on install, so that stays a small
+  fetch. A second binary, `upkeep-mcp-http`, starts the Streamable HTTP
+  entrypoint, which an installed package previously had no way to reach.
+- `server.json` and the matching `mcpName`, for the official MCP registry, and
+  `.github/workflows/release.yml`, which publishes on a version tag with npm
+  provenance so the tarball is tied to the commit it was built from. The
+  workflow re-runs the whole gate and refuses a tag whose version does not match
+  `package.json`. Tests keep `server.json`, `package.json` and `SERVER_VERSION`
+  from drifting apart.
+
+### Changed
+
+- `exports` no longer publishes the stdio entrypoint as the package's API:
+  `import 'upkeep-mcp'` started a server. `.` is now the server factory and
+  `./http` the HTTP entrypoint.
+- The message for a missing portfolio file said "copy sites.example.json to
+  sites.json", which is unactionable for anyone whose client started the server
+  somewhere else — Claude Desktop starts them in `/`, so `sites.json` was looked
+  for at `/sites.json`. Both the tool and the `portfolio://sites` resource now
+  say where the path is resolved from, and `file` asks for a full path.
+
 ### Fixed
 
+- The HTTP entrypoint answered _every_ path with the landing page and a 200,
+  so a crawler, a browser asking for a favicon and a person with a typo were all
+  told they had found something. Only `/` serves the page now; anything but
+  `/mcp` is a 404 naming the endpoint.
 - The public-target guard checked the port on the TLS path and nowhere else, so
   a public instance would have fetched `https://any-host:22/` and reported back
   whether the connection was refused — a port scan run from the deployment's
@@ -203,7 +234,8 @@ true })` refuses any host resolving outside public unicast space — loopback,
   this release needs sits on that boundary. See
   `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tiagocalado86/upkeep-mcp/releases/tag/v0.1.0

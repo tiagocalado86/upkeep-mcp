@@ -1,7 +1,8 @@
 {
   "name": "upkeep-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP server for ongoing website maintenance checks: domains, SSL, uptime, technical SEO and accessibility — from public information only.",
+  "mcpName": "io.github.tiagocalado86/upkeep-mcp",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -28,10 +29,12 @@
     "node": ">=22"
   },
   "bin": {
-    "upkeep-mcp": "dist/index.js"
+    "upkeep-mcp": "dist/index.js",
+    "upkeep-mcp-http": "dist/http.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/server.js",
+    "./http": "./dist/http.js"
   },
   "files": [
     "dist",

@@ -63,7 +63,12 @@ export async function describePortfolio(ports: Ports): Promise<string> {
     return JSON.stringify(
       {
         sites: [],
-        note: `No portfolio file was read: ${cause instanceof Error ? cause.message : String(cause)}. Copy sites.example.json to ${PORTFOLIO_FILE} to fill this in.`,
+        note:
+          `No portfolio file was read: ${cause instanceof Error ? cause.message : String(cause)}. ` +
+          `This resource reads "${PORTFOLIO_FILE}" from the directory the server was started in, ` +
+          `so start it in the directory holding your portfolio — or pass the full path to ` +
+          `portfolio_report's "file" argument, which this resource cannot take. The format is ` +
+          `documented in sites.example.json.`,
       },
       null,
       2,

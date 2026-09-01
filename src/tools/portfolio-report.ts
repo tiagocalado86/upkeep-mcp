@@ -85,9 +85,11 @@ const inputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Path to a portfolio JSON file, relative to where the server runs. Defaults to ' +
-        '"sites.json". Ignored when "sites" is given. The format is documented in ' +
-        'sites.example.json; only .json files can be read.',
+      'Path to a portfolio JSON file, e.g. "/Users/you/sites.json". Give the full path: a ' +
+        'relative one is resolved against the directory this server was started in, which for a ' +
+        'desktop client is usually "/" and not the user\'s own. Defaults to "sites.json". ' +
+        'Ignored when "sites" is given. The format is documented in sites.example.json; only ' +
+        '.json files can be read.',
     ),
   checks: z
     .array(z.enum(CHECK_NAMES))
@@ -511,7 +513,17 @@ async function loadSites(
     return {
       ok: false,
       code: 'not_found',
-      reason: `${cause instanceof Error ? cause.message : String(cause)}. Pass "sites" inline, or copy sites.example.json to ${DEFAULT_FILE}.`,
+      // The path is resolved against the directory the client started this
+      // server in, which is rarely the user's own: Claude Desktop launches
+      // servers from `/`, so `sites.json` is looked for at `/sites.json`.
+      // Telling someone to copy a file into a directory they did not choose
+      // is not an actionable message.
+      reason:
+        `${cause instanceof Error ? cause.message : String(cause)}. ` +
+        `Pass "sites" inline, or "file" with the full path to your portfolio ` +
+        `(for example "/Users/you/sites.json"): "${DEFAULT_FILE}" alone is resolved against the ` +
+        `directory this server was started in, not the one you are working in. The format is ` +
+        `documented in sites.example.json.`,
     };
   }
 
