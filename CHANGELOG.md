@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-01
+
 ### Added
 
 - `accessibility_audit`: axe-core over a headless browser, reporting the WCAG
@@ -38,6 +40,27 @@ true })` refuses any host resolving outside public unicast space — loopback,
   uptime and accessibility, what several of them do better than this one, and
   the gap none of them fills — every one answers about a single target, and
   nothing aggregates a portfolio or reports what changed since the last run.
+
+- `examples/conversation.md`: one portfolio session end to end — the Monday
+  triage across five sites, a drill-down into the certificate that caused it, a
+  quick uptime-only pass, and a second full run — with every tool output
+  verbatim. `examples/accessibility-audit.md` joins it, captured against the
+  W3C's own "before" demonstration page, which is built to fail.
+
+### Fixed
+
+- `portfolio_report` said nothing at all when it had compared this run against
+  the previous one and found that nothing had moved. Silence was
+  indistinguishable from a comparison that never happened, in the one tool whose
+  reason to exist is answering "what changed since last time". It now always
+  states the outcome, with how many sites were comparable: `No change since
+2026-09-01T09:49:19.079Z (1 of 5 sites comparable)`.
+- A finding that appeared on a site whose severity did not move was computed,
+  put in the structured output, and never mentioned in the text — so a site that
+  was a warning for an expiring registration and picked up an expiring
+  certificate read as unchanged.
+- `accessibility_audit` counted everything in the plural: "1 rules could not be
+  decided automatically and need a person to look".
 
 ## [0.2.0] - 2026-09-01
 
@@ -163,6 +186,7 @@ true })` refuses any host resolving outside public unicast space — loopback,
   this release needs sits on that boundary. See
   `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tiagocalado86/upkeep-mcp/releases/tag/v0.1.0
