@@ -40,6 +40,22 @@ describe('runAccessibilityAudit', () => {
     expect(text(result)).toContain('roughly a third');
   });
 
+  it('counts in the singular when there is one of something', async () => {
+    const result = await runAccessibilityAudit(
+      { url: PAGE },
+      fakePorts({
+        axe: axeRun({
+          violations: [violation({ id: 'html-has-lang', impact: 'serious', nodeCount: 1 })],
+          incompleteCount: 1,
+        }),
+      }),
+    );
+
+    expect(text(result)).toContain('1 wcag2aa rule failed across 1 element,');
+    expect(text(result)).toContain('1 needs a person.');
+    expect(text(result)).toContain('1 rule could not be decided automatically and needs a person');
+  });
+
   it('maps axe impacts onto the severities this project reports', async () => {
     const result = await runAccessibilityAudit(
       { url: PAGE },

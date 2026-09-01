@@ -743,6 +743,26 @@ function keyOf(site: { name: string; url: string }): string {
 }
 
 /**
+ * Groups new finding codes by the site they appeared on.
+ *
+ * A site that picked up four findings since the last run is one line in the
+ * report, not four: the reader is scanning for which sites moved.
+ *
+ * @param items New findings, each naming its site and code.
+ * @returns One entry per site, in the order the sites first appear.
+ * @throws Never.
+ */
+function groupBySite(items: readonly { site: string; code: string }[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const item of items) {
+    const codes = grouped.get(item.site);
+    if (codes === undefined) grouped.set(item.site, [item.code]);
+    else codes.push(item.code);
+  }
+  return grouped;
+}
+
+/**
  * Renders the human-readable half of the result.
  *
  * Written as the report a person would actually send: the headline count, then
@@ -779,18 +799,36 @@ function summarise(report: {
   }
 
   const changes = report.changes;
+  const since = changes.previousRunAt ?? 'the previous run';
+  // The comparison always says what it did. A report that stays silent when
+  // nothing moved cannot be told apart from one that never compared, and "what
+  // changed since last time" is the question this tool exists to answer.
   if (!changes.comparedWithPreviousRun) {
     lines.push(
       '',
       'Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.',
     );
-  } else if (changes.regressed.length > 0 || changes.improved.length > 0) {
-    lines.push('', `Changed since ${changes.previousRunAt ?? 'the previous run'}:`);
-    for (const item of changes.regressed) {
-      lines.push(`- ${item.site} got worse: ${item.from} → ${item.to}.`);
-    }
-    for (const item of changes.improved) {
-      lines.push(`- ${item.site} improved: ${item.from} → ${item.to}.`);
+  } else {
+    const compared =
+      `${String(changes.sitesCompared)} of ${String(report.siteCount)} ` +
+      `site${report.siteCount === 1 ? '' : 's'} comparable`;
+    if (
+      changes.regressed.length === 0 &&
+      changes.improved.length === 0 &&
+      changes.newFindings.length === 0
+    ) {
+      lines.push('', `No change since ${since} (${compared}).`);
+    } else {
+      lines.push('', `Changed since ${since} (${compared}):`);
+      for (const item of changes.regressed) {
+        lines.push(`- ${item.site} got worse: ${item.from} → ${item.to}.`);
+      }
+      for (const item of changes.improved) {
+        lines.push(`- ${item.site} improved: ${item.from} → ${item.to}.`);
+      }
+      for (const [site, codes] of groupBySite(changes.newFindings)) {
+        lines.push(`- ${site}: new since the last run — ${codes.join(', ')}.`);
+      }
     }
   }
 

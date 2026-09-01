@@ -36,6 +36,9 @@ const IMPACT_SEVERITY: Record<string, Severity> = {
 /** Violations reported individually before the rest are summarised. */
 const DETAILED_VIOLATIONS = 10;
 
+/** `1 rule` / `3 rules`. Every line here counts something, and a person reads it. */
+const count = (n: number, noun: string): string => `${String(n)} ${noun}${n === 1 ? '' : 's'}`;
+
 const inputSchema = z.object({
   url: z
     .string()
@@ -277,7 +280,7 @@ function collectFindings(run: AxeRun, standard: string): Finding[] {
       finding(
         `a11y_${violation.id.replace(/-/g, '_')}`,
         IMPACT_SEVERITY[violation.impact ?? ''] ?? 'info',
-        `${violation.help} (${String(violation.nodeCount)} element${violation.nodeCount === 1 ? '' : 's'}, ${violation.id}).`,
+        `${violation.help} (${count(violation.nodeCount, 'element')}, ${violation.id}).`,
       ),
     );
   }
@@ -288,7 +291,7 @@ function collectFindings(run: AxeRun, standard: string): Finding[] {
       finding(
         'a11y_further_violations',
         'info',
-        `${String(remaining)} further rules failed and are listed in full under "violations".`,
+        `${count(remaining, 'further rule')} failed; ${remaining === 1 ? 'it is' : 'they are'} listed in full under "violations".`,
       ),
     );
   }
@@ -304,7 +307,7 @@ function collectFindings(run: AxeRun, standard: string): Finding[] {
       finding(
         'a11y_needs_review',
         'info',
-        `${String(run.incompleteCount)} rules could not be decided automatically and need a person to look.`,
+        `${count(run.incompleteCount, 'rule')} could not be decided automatically and ${run.incompleteCount === 1 ? 'needs' : 'need'} a person to look.`,
       ),
     );
   }
@@ -401,9 +404,9 @@ function summarise(report: {
   const lines: string[] = [];
 
   lines.push(
-    `${report.finalUrl ?? 'the page'}: ${String(report.violationCount)} ${report.standard} rules failed across ` +
-      `${String(report.affectedElements)} elements, ${String(report.passCount)} passed, ` +
-      `${String(report.incompleteCount)} need a person.`,
+    `${report.finalUrl ?? 'the page'}: ${count(report.violationCount, `${report.standard} rule`)} failed across ` +
+      `${count(report.affectedElements, 'element')}, ${String(report.passCount)} passed, ` +
+      `${String(report.incompleteCount)} ${report.incompleteCount === 1 ? 'needs' : 'need'} a person.`,
   );
 
   if (report.findings.length > 0) {

@@ -422,6 +422,56 @@ describe('runPortfolioReport', () => {
     expect(text(second)).toContain('Healthy Ltd got worse');
   });
 
+  it('says the comparison ran and found nothing, rather than staying silent', async () => {
+    const history = createMemoryHistory();
+    const sites = [...TWO_SITES];
+    const fixtures = { 'healthy.example': {}, 'urgent.example': { cert: 3 } };
+
+    await runPortfolioReport({ sites }, portfolioPorts(fixtures, { history }));
+    const second = await runPortfolioReport({ sites }, portfolioPorts(fixtures, { history }));
+
+    expect(structured(second)['changes']).toMatchObject({
+      comparedWithPreviousRun: true,
+      sitesCompared: 2,
+      regressed: [],
+      improved: [],
+      newFindings: [],
+    });
+    // Saying nothing is indistinguishable from never having compared.
+    expect(text(second)).toContain('No change since');
+    expect(text(second)).toContain('2 of 2 sites comparable');
+  });
+
+  it('names a finding that appeared without the site changing severity', async () => {
+    const history = createMemoryHistory();
+    const sites = [
+      {
+        name: 'Healthy Ltd',
+        url: 'https://healthy.example',
+        checks: ['domain', 'ssl'] as CheckName[],
+      },
+    ];
+
+    await runPortfolioReport(
+      { sites },
+      portfolioPorts({ 'healthy.example': { domainDays: 20 } }, { history }),
+    );
+
+    // The registration was already expiring, so the site stays a warning: the
+    // certificate is new information the severity cannot carry.
+    const second = await runPortfolioReport(
+      { sites },
+      portfolioPorts({ 'healthy.example': { domainDays: 20, cert: 10 } }, { history }),
+    );
+
+    expect(structured(second)['changes']).toMatchObject({
+      regressed: [],
+      improved: [],
+      newFindings: [{ site: 'Healthy Ltd', code: 'cert_expires_soon' }],
+    });
+    expect(text(second)).toContain('Healthy Ltd: new since the last run');
+  });
+
   it('orders what needs action worst first across the whole portfolio', async () => {
     const result = await runPortfolioReport(
       {
