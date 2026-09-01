@@ -243,8 +243,9 @@ function landingPage(): string {
     '',
     `This is a demo instance. Point an MCP client at ${MCP_PATH} on this host.`,
     '',
-    'It contacts only public addresses on port 443, rate limits every caller,',
-    'and stores nothing. Source: https://github.com/tiagocalado86/upkeep-mcp',
+    'It contacts only public addresses, and only the web ports. It rate limits',
+    'every caller and stores nothing.',
+    'Source: https://github.com/tiagocalado86/upkeep-mcp',
     '',
   ].join('\n');
 }

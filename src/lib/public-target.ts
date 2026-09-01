@@ -22,19 +22,28 @@ export interface TargetGuard {
    */
   assertPublic(host: string): Promise<void>;
   /**
+   * @param port The port the request would actually reach.
+   * @param protocol The scheme it would use, which decides the port allowed.
    * @throws {CheckError} `invalid_input` when the port may not be contacted.
    */
-  assertPort(port: number): void;
+  assertPort(port: number, protocol: WebProtocol): void;
 }
 
 /**
- * The only port a public deployment will open.
+ * The ports a public deployment will open, one per scheme.
  *
  * Not a nicety: a public endpoint that connects to any port on any host is a
  * port scanner with someone else's name on it, and every hosting provider's
  * acceptable use policy forbids running one.
+ *
+ * Port 80 is here because `uptime_check` answers "does plain HTTP still work,
+ * and does it upgrade?" — a question that cannot be asked over 443. Two web
+ * ports is not a port scanner; it is the web.
  */
-const PUBLIC_PORT = 443;
+const PUBLIC_PORTS = { 'https:': 443, 'http:': 80 } as const;
+
+/** The schemes a public deployment will contact. */
+export type WebProtocol = keyof typeof PUBLIC_PORTS;
 
 /**
  * A guard that allows everything.
@@ -51,7 +60,7 @@ export function allowAnyTarget(): TargetGuard {
 }
 
 /**
- * A guard that allows only public unicast destinations on port 443.
+ * A guard that allows only public unicast destinations, on the web ports.
  *
  * @param resolve How to find a hostname's addresses. Injected so the policy can
  *   be tested without a resolver, and so the caller decides the deadline.
@@ -88,11 +97,12 @@ export function allowOnlyPublicTargets(
       }
     },
 
-    assertPort: (port: number): void => {
-      if (port !== PUBLIC_PORT) {
+    assertPort: (port: number, protocol: WebProtocol): void => {
+      const allowed = PUBLIC_PORTS[protocol];
+      if (port !== allowed) {
         throw new CheckError(
           'invalid_input',
-          `this server only contacts port ${String(PUBLIC_PORT)}; a public instance that connects to arbitrary ports is a port scanner`,
+          `this server only contacts port ${String(allowed)} over ${protocol.replace(':', '')}; a public instance that connects to arbitrary ports is a port scanner`,
         );
       }
     },

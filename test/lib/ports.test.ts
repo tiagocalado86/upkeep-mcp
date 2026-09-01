@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foundAnything } from '../../src/lib/ports.js';
+import { createDefaultPorts, foundAnything } from '../../src/lib/ports.js';
 import { emptyDns, healthyDns } from '../helpers/fake-ports.js';
 
 describe('foundAnything', () => {
@@ -26,5 +26,34 @@ describe('foundAnything', () => {
 
   it('is true when only the www sibling resolves', () => {
     expect(foundAnything({ ...emptyDns(), wwwResolves: true })).toBe(true);
+  });
+});
+
+describe('createDefaultPorts with publicTargetsOnly', () => {
+  // The guard was wired into the TLS path and nowhere else, so a public
+  // instance would have fetched `https://host:22/` and reported back whether
+  // the connection was refused. The policy was right; only the wiring was
+  // missing, so this asserts the wiring, on every path that leaves the process.
+  //
+  // The target is an RFC 5737 documentation address: public as far as the
+  // guard is concerned, needs no lookup because it is a literal, and is never
+  // contacted because the port is refused first.
+  const ports = createDefaultPorts({ publicTargetsOnly: true });
+
+  it('refuses a port that is not a web port, on every outbound path', async () => {
+    await expect(ports.http.hop('https://192.0.2.1:22/', 1000)).rejects.toThrow(/port scanner/);
+    await expect(ports.http.text('https://192.0.2.1:3306/', 1000, 1000)).rejects.toThrow(
+      /port scanner/,
+    );
+    await expect(ports.robots.forOrigin('https://192.0.2.1:8080')).rejects.toThrow(/port scanner/);
+    await expect(ports.browser.audit('https://192.0.2.1:9222/', ['wcag2a'])).rejects.toThrow(
+      /port scanner/,
+    );
+    await expect(ports.tls.inspect('192.0.2.1', 22, ['192.0.2.1'])).rejects.toThrow(/port scanner/);
+  });
+
+  it('refuses port 443 over plain HTTP, and 80 over HTTPS', async () => {
+    await expect(ports.http.hop('http://192.0.2.1:443/', 1000)).rejects.toThrow(/port scanner/);
+    await expect(ports.http.hop('https://192.0.2.1:80/', 1000)).rejects.toThrow(/port scanner/);
   });
 });

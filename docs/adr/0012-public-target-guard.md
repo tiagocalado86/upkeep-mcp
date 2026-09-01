@@ -45,6 +45,20 @@ outside public unicast space, and any port but 443.
 - The public deployment cannot check a certificate on port 8443, and says so
   rather than failing obscurely. That is a real loss of function, accepted
   because the alternative is running a port scanner for strangers.
+- The port rule is per scheme: 443 over HTTPS, 80 over plain HTTP. Port 80 is
+  allowed because `uptime_check` exists partly to answer "does plain HTTP still
+  answer, and does it upgrade?", which cannot be asked over 443. Two web ports
+  is not a port scan.
+- **The port check applied to the TLS path alone until 2026-09-01.** `hop`,
+  `text` and `robots` called `assertPublic` and nothing else, so a public
+  instance would have fetched `https://any-host:22/` and reported back whether
+  the connection was refused — the port scan this ADR says it prevents,
+  available with no DNS trickery at all, while three documents claimed port 443
+  only. Every outbound path now goes through one helper that checks host and
+  port together, and `test/lib/ports.test.ts` asserts it for each of them. The
+  lesson is the one this project keeps relearning: a policy is only in force
+  where it is wired in, and the test that would have caught this had to assert
+  the _wiring_, not the policy.
 - **The gap this leaves, stated plainly: the address is checked and then the
   request is made by hostname, so a resolver that answers differently the second
   time defeats it.** Closing that means pinning the connection to the address
@@ -52,3 +66,17 @@ outside public unicast space, and any port but 443.
   not done; until it is, the guard raises the cost of abuse rather than removing
   it, and a public instance should be treated as untrusted by whatever network
   it runs in.
+- **Why that gap is accepted on Cloud Run specifically**, rather than closed
+  before deploying: the prize behind it is not there. Google's metadata server
+  requires a `Metadata-Flavor: Google` header on every request and retired the
+  header-free endpoints in 2020; this project sends a fixed header set and has
+  no injection path, so a rebound request to `169.254.169.254` gets a 403 and no
+  credential. The deployment in `docs/deploying.md` has no VPC connector and no
+  Direct VPC egress, so private ranges have no route out of the instance at all.
+  What remains is a blind fetch into an empty network. Against that, closing it
+  means a runtime dependency on undici, a second hand-written redirect loop, a
+  hand-rolled replacement for happy-eyeballs address fallback, and the loss of
+  the offline test seam — in a project whose worst possible output is a false
+  "this client's site is down". **This reasoning is platform-dependent and does
+  not survive attaching a VPC connector, or moving to a host whose metadata
+  service is not header-gated.** If either happens, close the gap first.

@@ -9,14 +9,24 @@ This page is about the other one.
 A stranger holding the keyboard is not the same as you holding it, so the HTTP
 entrypoint is not the stdio entrypoint with a socket bolted on:
 
-- **It contacts only public addresses, and only port 443.** Anything resolving
-  to loopback, a private range or the link-local address where cloud metadata
-  services live is refused with an explanation.
+- **It contacts only public addresses, and only the web ports.** 443 over
+  HTTPS, and 80 over plain HTTP, which is the only way to answer `uptime_check`'s
+  question about whether HTTP upgrades. Any other port is refused: an endpoint
+  that connects wherever a stranger asks is a port scanner wearing this
+  project's name. Anything resolving to loopback, a private range or the
+  link-local address where cloud metadata services live is refused with an
+  explanation.
   [`docs/adr/0012`](adr/0012-public-target-guard.md) covers why, and what that
   guard still does not close.
 - **It admits traffic through a token bucket**: 60 requests a minute per caller
   with a burst of 20, and 8 requests in flight across everyone. A refusal is an
   answer with a reason, not a dropped connection.
+- **One process serves every visitor, and the run history lives in that
+  process.** Two callers whose portfolio entries carry the same name and URL are
+  compared against each other's previous run — which is public information about
+  a public site, plus the fact that someone else checked it. Nothing else
+  crosses: no portfolio file is read, and nothing is written down. If that is
+  not acceptable for a given deployment, run the stdio server instead.
 - **It reads no environment variables and holds no secrets.** The port comes
   from `--port`. There is nothing to configure and nothing to leak.
 

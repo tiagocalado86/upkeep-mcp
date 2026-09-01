@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The public-target guard checked the port on the TLS path and nowhere else, so
+  a public instance would have fetched `https://any-host:22/` and reported back
+  whether the connection was refused — a port scan run from the deployment's
+  address, wearing this project's `User-Agent`, needing no DNS trickery at all.
+  Three documents claimed "only public addresses, only on port 443" while this
+  was true. Every outbound path — `hop`, `text`, `robots`, `browser` and `tls` —
+  now goes through one helper that checks host and port together, and
+  `test/lib/ports.test.ts` asserts it for each of them. The rule is per scheme:
+  443 over HTTPS, 80 over plain HTTP, because `uptime_check` exists partly to
+  answer whether plain HTTP still answers and upgrades, and 443 cannot answer
+  that. See `docs/adr/0012-public-target-guard.md`, which also records why the
+  DNS-rebinding gap is accepted on Cloud Run specifically and what would change
+  that.
+- `SECURITY.md` still named `0.1.x` as the supported release.
+
 ## [0.3.0] - 2026-09-01
 
 ### Added

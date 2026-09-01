@@ -221,7 +221,8 @@ npm run start:http -- --port 8080
 
 Point an MCP client at `/mcp` on that host. The HTTP entrypoint is not the stdio
 one with a socket attached: a stranger is not the person who started the
-process, so it contacts **only public addresses, only on port 443**, and admits
+process, so it contacts **only public addresses, and only the web ports — 443,
+or 80 when checking whether plain HTTP upgrades** — and admits
 traffic through a per-caller rate limit. That means it will refuse to check
 anything on your own network — use the stdio server for that.
 [`docs/deploying.md`](docs/deploying.md) covers running it on Google Cloud Run,

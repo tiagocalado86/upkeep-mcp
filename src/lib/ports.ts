@@ -7,7 +7,12 @@ import { createTtlCache } from './cache.js';
 import { LIMITS, TTL } from './defaults.js';
 import { hasDsRecord, resolveAddresses, resolveRecords } from './dns.js';
 import { getText, httpHop, type HttpHopResult, type TextResult } from './http-client.js';
-import { allowAnyTarget, allowOnlyPublicTargets, type TargetGuard } from './public-target.js';
+import {
+  allowAnyTarget,
+  allowOnlyPublicTargets,
+  type TargetGuard,
+  type WebProtocol,
+} from './public-target.js';
 import { createMemoryHistory, type RunHistory } from './history.js';
 import { createHostLimiter } from './rate-limit.js';
 import { fetchRobots, type RobotsFetch } from './robots.js';
@@ -177,6 +182,47 @@ export interface PortOptions {
 }
 
 /**
+ * @param url The target.
+ * @param protocol Its scheme, already narrowed to one this project requests.
+ * @returns The port the request will actually reach, filled in from the scheme
+ *   when the URL leaves it implicit.
+ * @throws Never.
+ */
+function portOf(url: URL, protocol: WebProtocol): number {
+  if (url.port !== '') return Number(url.port);
+  return protocol === 'https:' ? 443 : 80;
+}
+
+/**
+ * Applies the whole target policy to one URL: the host and the port.
+ *
+ * Every outbound request goes through here rather than through `assertPublic`
+ * alone. The port was checked on the TLS path and nowhere else, so a public
+ * deployment promising "only the web ports" would still fetch
+ * `https://some-host:22/` and report back whether the connection was refused —
+ * a port scan run from someone else's address, which is exactly what
+ * `docs/adr/0012-public-target-guard.md` says the guard exists to prevent.
+ *
+ * @param guard The policy in force.
+ * @param url The target.
+ * @throws {CheckError} `invalid_input` when the host or the port is refused;
+ *   `not_found` when the host resolves to nothing.
+ */
+async function assertReachable(guard: TargetGuard, url: URL): Promise<void> {
+  // The address first, then the port. A loopback URL on some high port is
+  // refused for being loopback, which is what the caller needs to hear; saying
+  // "that is not a web port" of `http://127.0.0.1:9229/` would be true and
+  // useless.
+  await guard.assertPublic(url.hostname);
+
+  // A scheme this project never requests has no policy here on purpose:
+  // deciding it in a second place is how the first gap opened.
+  if (url.protocol === 'https:' || url.protocol === 'http:') {
+    guard.assertPort(portOf(url, url.protocol), url.protocol);
+  }
+}
+
+/**
  * Builds the real ports, with caching and per-host rate limiting wired in.
  *
  * The limiter is keyed by the host actually contacted, never by the domain being
@@ -229,7 +275,7 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
     },
     tls: {
       inspect: async (host, port, names) => {
-        guard.assertPort(port);
+        guard.assertPort(port, 'https:');
         await guard.assertPublic(host);
         return tlsCache.fetch(`${host}:${String(port)}|${names.join(',')}`, () =>
           limiter.run(host, () => inspectTls(host, port, names)),
@@ -239,17 +285,17 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
     http: {
       // Never cached: caching an uptime check defeats the tool.
       hop: async (url, timeoutMs, signal) => {
-        await guard.assertPublic(new URL(url).hostname);
+        await assertReachable(guard, new URL(url));
         return limiter.run(new URL(url).host, () => httpHop(url, timeoutMs, signal));
       },
       text: async (url, timeoutMs, maxBytes) => {
-        await guard.assertPublic(new URL(url).hostname);
+        await assertReachable(guard, new URL(url));
         const result = await limiter.run(new URL(url).host, () =>
           getText(url, timeoutMs, maxBytes),
         );
         // `getText` follows redirects, so the URL that was checked and the URL
         // that answered are not necessarily the same host.
-        await guard.assertPublic(new URL(result.url).hostname);
+        await assertReachable(guard, new URL(result.url));
         return result;
       },
     },
@@ -257,7 +303,7 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       // Cached per origin: an audit consults the rules before every request it
       // makes, and asking the host each time would be the opposite of polite.
       forOrigin: async (origin) => {
-        await guard.assertPublic(new URL(origin).hostname);
+        await assertReachable(guard, new URL(origin));
         return robotsCache.fetch(origin, () =>
           limiter.run(new URL(origin).host, () => fetchRobots(origin)),
         );
@@ -274,12 +320,12 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       // whatever that page embeds, which this cannot inspect — one more reason
       // the published container ships no browser at all.
       audit: async (url, tags) => {
-        await guard.assertPublic(new URL(url).hostname);
+        await assertReachable(guard, new URL(url));
         const run = await browsers.run(new URL(url).host, () => runAxe(url, tags));
         // Where it ended, not only where it was sent: a public URL that
         // redirects to loopback would otherwise return that page's title and
         // selectors to the caller.
-        await guard.assertPublic(new URL(run.url).hostname);
+        await assertReachable(guard, new URL(run.url));
         return run;
       },
     },

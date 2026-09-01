@@ -59,19 +59,31 @@ describe('allowOnlyPublicTargets', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('opens no port but 443', () => {
+  it('opens no port but the web ports, and only for their own scheme', () => {
     const guard = allowOnlyPublicTargets(resolver({}));
 
     expect(() => {
-      guard.assertPort(443);
+      guard.assertPort(443, 'https:');
+    }).not.toThrow();
+    // Port 80 is allowed over plain HTTP because `uptime_check` asks whether
+    // HTTP still answers and whether it upgrades, which 443 cannot answer.
+    expect(() => {
+      guard.assertPort(80, 'http:');
     }).not.toThrow();
     // A public endpoint that connects to any port on request is a port scanner
     // wearing this project's user agent.
     expect(() => {
-      guard.assertPort(8443);
+      guard.assertPort(8443, 'https:');
     }).toThrow(/port scanner/);
     expect(() => {
-      guard.assertPort(22);
+      guard.assertPort(22, 'https:');
+    }).toThrow(/port scanner/);
+    expect(() => {
+      guard.assertPort(8080, 'http:');
+    }).toThrow(/port scanner/);
+    // The scheme decides the port: 443 is not a plain-HTTP port.
+    expect(() => {
+      guard.assertPort(443, 'http:');
     }).toThrow(/port scanner/);
   });
 });
@@ -85,7 +97,7 @@ describe('allowAnyTarget', () => {
     await expect(guard.assertPublic('192.168.1.10')).resolves.toBeUndefined();
     await expect(guard.assertPublic('localhost')).resolves.toBeUndefined();
     expect(() => {
-      guard.assertPort(8443);
+      guard.assertPort(8443, 'https:');
     }).not.toThrow();
   });
 });
