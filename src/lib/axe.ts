@@ -87,63 +87,117 @@ export async function runAxe(
   tags: readonly string[],
   timeoutMs: number = TIMEOUTS.browserMs,
 ): Promise<AxeRun> {
-  const browser = await launch();
+  const startedAt = Date.now();
+  const browser = await launch(timeoutMs);
+  let timer: NodeJS.Timeout | undefined;
+
+  // The deadline covers everything from here, not just the navigation.
+  // `page.evaluate` has no timeout of its own, so a page whose main thread never
+  // yields — or one large enough that axe grinds on it — would otherwise hang
+  // forever, holding a rate-limiter slot with it and taking a whole portfolio
+  // run down. Closing the browser is what actually stops the work; rejecting
+  // alone would leave it running.
+  const remaining = Math.max(1000, timeoutMs - (Date.now() - startedAt));
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      void browser.close().catch(() => undefined);
+      reject(
+        new CheckError(
+          'timeout',
+          `auditing ${url} did not finish within ${(timeoutMs / 1000).toFixed(0)}s`,
+        ),
+      );
+    }, remaining);
+  });
 
   try {
-    const context = await browser.newContext({
-      userAgent: USER_AGENT,
-      // A viewport, because half of what axe judges — reflow, target size,
-      // contrast against a rendered background — depends on one.
-      viewport: { width: 1280, height: 900 },
-    });
-    const page = await context.newPage();
-
-    try {
-      // `domcontentloaded` rather than `networkidle`: a page with a chat widget
-      // or an analytics beacon never goes idle, and waiting for it to would
-      // time out on exactly the sites a client pays someone to maintain.
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-      await page.addScriptTag({ content: axe.source });
-
-      // No context argument: axe defaults to the whole document, which is what
-      // this wants and which keeps `document` out of this file's types.
-      const result = await page.evaluate(
-        (selected) => window.axe.run({ runOnly: { type: 'tag', values: selected } }),
-        [...tags],
-      );
-
-      return {
-        url: page.url(),
-        title: await page.title(),
-        violations: result.violations.map(summariseViolation),
-        passCount: result.passes.length,
-        incompleteCount: result.incomplete.length,
-        axeVersion: axe.version,
-      };
-    } catch (cause) {
-      throw asCheckError(cause, url, timeoutMs);
-    } finally {
-      await context.close();
-    }
+    return await Promise.race([audit(browser, url, tags, remaining), deadline]);
   } finally {
-    await browser.close();
+    clearTimeout(timer);
+    await browser.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Loads the page and runs axe over it.
+ *
+ * @param browser An open browser.
+ * @param url The page to audit.
+ * @param tags axe tags selecting the standard.
+ * @param timeoutMs Deadline for the navigation.
+ * @returns What axe found.
+ * @throws {CheckError} `timeout` or `network`.
+ */
+async function audit(
+  browser: Browser,
+  url: string,
+  tags: readonly string[],
+  timeoutMs: number,
+): Promise<AxeRun> {
+  const context = await browser.newContext({
+    userAgent: USER_AGENT,
+    // A viewport, because half of what axe judges — reflow, target size,
+    // contrast against a rendered background — depends on one.
+    viewport: { width: 1280, height: 900 },
+    // axe is injected as an inline script, which a Content-Security-Policy
+    // without `unsafe-inline` blocks — and a client site with a strict CSP is
+    // a well-configured one, exactly the kind this should still be able to
+    // audit. Nothing is executed that the page did not already allow itself;
+    // the policy is bypassed for the audit, not weakened for the visitor.
+    bypassCSP: true,
+  });
+  const page = await context.newPage();
+
+  try {
+    // `load` rather than `networkidle`, which never arrives on a page with a
+    // chat widget or an analytics beacon — and rather than `domcontentloaded`,
+    // which returns before a client-rendered site has rendered anything. Auditing
+    // an empty root element reports zero violations, which is the worst possible
+    // wrong answer: a clean bill for the sites most likely to have problems.
+    await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
+    await page.addScriptTag({ content: axe.source });
+
+    // No context argument: axe defaults to the whole document, which is what
+    // this wants and which keeps `document` out of this file's types.
+    const result = await page.evaluate(
+      (selected) => window.axe.run({ runOnly: { type: 'tag', values: selected } }),
+      [...tags],
+    );
+
+    return {
+      url: page.url(),
+      title: await page.title(),
+      violations: result.violations.map(summariseViolation),
+      passCount: result.passes.length,
+      incompleteCount: result.incomplete.length,
+      axeVersion: axe.version,
+    };
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  } finally {
+    await context.close().catch(() => undefined);
   }
 }
 
 /**
  * Starts a headless browser.
  *
+ * @param timeoutMs Deadline for the launch itself.
  * @returns The browser.
  * @throws {CheckError} `not_found` when none is installed. This is the
  *   graceful-degradation path the whole design turns on: the message names the
  *   one command that fixes it, and every other tool keeps working without it.
  */
-async function launch(): Promise<Browser> {
+async function launch(timeoutMs: number): Promise<Browser> {
   try {
-    return await chromium.launch({ headless: true });
+    return await chromium.launch({ headless: true, timeout: timeoutMs });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    if (/Executable doesn't exist|playwright install|browserType.launch/i.test(message)) {
+
+    // Matched narrowly. Playwright prefixes every launch failure with
+    // `browserType.launch:`, so matching that would tell someone whose Linux
+    // host is missing shared libraries to install a browser they already have.
+    if (/Executable doesn't exist|Please run the following command/i.test(message)) {
       throw new CheckError(
         'not_found',
         'no browser is installed for this check; run `npx playwright install chromium` once, or use the other tools, which need none',

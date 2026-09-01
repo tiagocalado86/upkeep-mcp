@@ -3,10 +3,12 @@
 Thanks for taking a look. This is a small, opinionated project; the sections
 below cover what you need to work on it without guessing.
 
-> **Status:** All four phases are complete. `domain_check`, `ssl_check`, `uptime_check`,
-> `seo_audit` and `portfolio_report` work and are covered by tests, along with
-> the `portfolio://sites` resource and the `quarterly_report` prompt. Phase 4
-> adds `accessibility_audit` and the Streamable HTTP transport.
+> **Status:** all four phases are complete. `domain_check`, `ssl_check`,
+> `uptime_check`, `seo_audit`, `portfolio_report` and `accessibility_audit` work
+> and are covered by tests, along with the `portfolio://sites` resource, the
+> `quarterly_report` prompt, and both the stdio and Streamable HTTP transports.
+> `accessibility_audit` needs a browser — `npx playwright install chromium`,
+> once — and nothing else does.
 
 ## Ground rules
 
@@ -105,8 +107,11 @@ interfaces in `lib/ports.ts`. That is not a convention — those interfaces are 
 only thing a tool can see, so the compiler enforces it, and it is what makes the
 tools testable without a network. `server.ts` only registers; it holds no logic.
 
-`src/http.ts`, the Streamable HTTP entrypoint for the public demo, arrives in
-Phase 4. [`docs/architecture.md`](docs/architecture.md) has the full picture.
+`src/http.ts` is the Streamable HTTP entrypoint for the public demo, and differs
+from the stdio one in two ways that matter: it hands every tool ports that
+refuse anything but public targets, and it rate limits its callers.
+[`docs/deploying.md`](docs/deploying.md) covers running it, and
+[`docs/architecture.md`](docs/architecture.md) has the full picture.
 
 ## Adding a tool
 

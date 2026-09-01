@@ -17,7 +17,8 @@ src/
 Two rules hold the structure together.
 
 **No tool performs I/O directly.** A tool receives a `Ports` object
-(`lib/ports.ts`) and reaches DNS, RDAP, TLS and HTTP only through it. This is not
+(`lib/ports.ts`) and reaches DNS, RDAP, TLS, HTTP, a browser and the local
+portfolio file only through it. This is not
 a convention: the interfaces are the only thing a tool can see, so the compiler
 enforces it.
 

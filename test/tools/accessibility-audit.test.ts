@@ -88,7 +88,7 @@ describe('runAccessibilityAudit', () => {
     ]);
   });
 
-  it('reports rules it could not decide as unknown, not as passes', async () => {
+  it('reports rules it could not decide, without putting the site in the unknown column', async () => {
     const result = await runAccessibilityAudit(
       { url: PAGE },
       fakePorts({ axe: axeRun({ incompleteCount: 4 }) }),
@@ -96,8 +96,37 @@ describe('runAccessibilityAudit', () => {
 
     const findings = structured(result)['findings'] as { code: string; severity: string }[];
     const review = findings.find((item) => item.code === 'a11y_needs_review');
-    expect(review?.severity).toBe('unknown');
+
+    // Said out loud, because they are the rules needing a person — but `info`,
+    // not `unknown`: contrast against a background image is incomplete on most
+    // real pages, and `unknown` is the column a portfolio reserves for checks
+    // that could not run at all.
+    expect(review?.severity).toBe('info');
+    expect(structured(result)['severity']).not.toBe('unknown');
     expect(structured(result)['incompleteCount']).toBe(4);
+  });
+
+  it('keeps the error category the failure carried, rather than re-reading its prose', async () => {
+    const result = await runAccessibilityAudit(
+      { url: PAGE },
+      // What the public instance's target guard raises for a redirect into
+      // private space. Classifying it by message would report it as `network`.
+      fakePorts({
+        axe: new CheckError('invalid_input', 'this server only contacts the public internet'),
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain('invalid_input');
+  });
+
+  it('passes a timeout through as a timeout', async () => {
+    const result = await runAccessibilityAudit(
+      { url: PAGE },
+      fakePorts({ axe: new CheckError('timeout', 'auditing did not finish within 45s') }),
+    );
+
+    expect(text(result)).toContain('timeout');
   });
 
   it('summarises the tail rather than emitting a finding per rule', async () => {

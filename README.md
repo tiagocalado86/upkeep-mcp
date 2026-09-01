@@ -299,9 +299,9 @@ that does less.
   of this, what they do better, and the gap this one fills
 - [`docs/deploying.md`](docs/deploying.md) — running the HTTP instance, and what
   is different about it
-- [`docs/adr/`](docs/adr/) is where the awkward decisions live, including why
-  the browser is optional ([0013](docs/adr/0013-playwright-core-and-an-optional-browser.md))
-- [`docs/adr/`](docs/adr/) — one short record per structural decision
+- [`docs/adr/`](docs/adr/) — one short record per structural decision, including
+  why the browser is
+  [optional](docs/adr/0013-playwright-core-and-an-optional-browser.md)
 - [`SECURITY.md`](SECURITY.md) — threat model and reporting policy
 - [`CHANGELOG.md`](CHANGELOG.md)
 

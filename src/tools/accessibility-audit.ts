@@ -2,6 +2,7 @@ import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AxeRun, AxeViolation } from '../lib/axe.js';
 import { SERVER_NAME } from '../lib/constants.js';
+import { CheckError } from '../lib/errors.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { isAllowed } from '../lib/robots.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
@@ -143,12 +144,13 @@ async function buildReport(input: Input, ports: Ports) {
   try {
     run = await ports.browser.audit(target.toString(), STANDARDS[standard]);
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    // A missing browser is not a failed audit, it is an audit that did not
-    // happen — and every other tool in this server still works without one.
-    return message.includes('no browser is installed')
-      ? buildFailure('not_found', message)
-      : buildFailure('network', message);
+    // The category comes from the error, never from reading its message: a
+    // timeout, a refused target and a missing browser are three different
+    // answers, and re-deriving them from prose means rewording a sentence
+    // silently changes what callers are told.
+    return cause instanceof CheckError
+      ? buildFailure(cause.code, cause.message)
+      : buildFailure('network', cause instanceof Error ? cause.message : String(cause));
   }
 
   const findings = sortFindings(collectFindings(run, standard));
@@ -292,12 +294,16 @@ function collectFindings(run: AxeRun, standard: string): Finding[] {
   }
 
   if (run.incompleteCount > 0) {
-    // Not a problem, and not nothing: these are the rules axe declines to judge,
-    // and calling a page clean without mentioning them overstates the result.
+    // `info`, not `unknown`. These are rules axe declines to judge, and saying
+    // so matters — but `unknown` in this project means "the check did not
+    // establish anything", and `portfolio_report` ranks it above `info` and
+    // counts it in its own bucket. Contrast against a background image is
+    // incomplete on most real pages, so grading it `unknown` would put every
+    // audited site in the column reserved for checks that could not run.
     findings.push(
       finding(
         'a11y_needs_review',
-        'unknown',
+        'info',
         `${String(run.incompleteCount)} rules could not be decided automatically and need a person to look.`,
       ),
     );

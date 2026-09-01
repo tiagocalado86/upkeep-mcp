@@ -237,7 +237,13 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       },
       text: async (url, timeoutMs, maxBytes) => {
         await guard.assertPublic(new URL(url).hostname);
-        return limiter.run(new URL(url).host, () => getText(url, timeoutMs, maxBytes));
+        const result = await limiter.run(new URL(url).host, () =>
+          getText(url, timeoutMs, maxBytes),
+        );
+        // `getText` follows redirects, so the URL that was checked and the URL
+        // that answered are not necessarily the same host.
+        await guard.assertPublic(new URL(result.url).hostname);
+        return result;
       },
     },
     robots: {
@@ -259,7 +265,12 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       // the published container ships no browser at all.
       audit: async (url, tags) => {
         await guard.assertPublic(new URL(url).hostname);
-        return limiter.run(new URL(url).host, () => runAxe(url, tags));
+        const run = await limiter.run(new URL(url).host, () => runAxe(url, tags));
+        // Where it ended, not only where it was sent: a public URL that
+        // redirects to loopback would otherwise return that page's title and
+        // selectors to the caller.
+        await guard.assertPublic(new URL(run.url).hostname);
+        return run;
       },
     },
     files: { readText: readTextFile },
