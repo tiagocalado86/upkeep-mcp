@@ -9,14 +9,14 @@ Call:
 Text returned to the conversation:
 
 ```
-expired.badssl.com:443 certificate expires 2015-04-12 (-4159 days).
+expired.badssl.com:443 certificate expires 2015-04-12 (-4160 days).
 Issued by COMODO RSA Domain Validation Secure Server CA.
 Chain does not verify (CERT_HAS_EXPIRED). Negotiated TLSv1.2.
 Host matched via *.badssl.com.
 Revocation is not checked.
 
 Needs attention:
-- [critical] The certificate expired 4159 days ago.
+- [critical] The certificate expired 4160 days ago.
 - [critical] The certificate chain does not verify: CERT_HAS_EXPIRED.
 ```
 
@@ -26,13 +26,13 @@ Structured content:
 {
   "host": "expired.badssl.com",
   "port": 443,
-  "checkedAt": "2026-08-31T09:58:12.587Z",
+  "checkedAt": "2026-09-01T09:48:53.782Z",
   "severity": "critical",
   "findings": [
     {
       "code": "cert_expired",
       "severity": "critical",
-      "message": "The certificate expired 4159 days ago."
+      "message": "The certificate expired 4160 days ago."
     },
     {
       "code": "chain_invalid",
@@ -41,7 +41,7 @@ Structured content:
     }
   ],
   "expiresAt": "2015-04-12T23:59:59.000Z",
-  "daysUntilExpiry": -4159,
+  "daysUntilExpiry": -4160,
   "issuedAt": "2015-04-09T00:00:00.000Z",
   "issuer": "COMODO RSA Domain Validation Secure Server CA",
   "subject": "*.badssl.com",

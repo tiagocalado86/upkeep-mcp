@@ -65,16 +65,15 @@ describe('the README describes the tools that exist', () => {
     }
   });
 
-  it('gives every registered tool a section of its own', () => {
+  it('gives every registered tool a section of its own', async () => {
     const readme = readFileSync('README.md', 'utf8');
 
-    for (const name of [
-      'domain_check',
-      'ssl_check',
-      'uptime_check',
-      'seo_audit',
-      'portfolio_report',
-    ]) {
+    // Read the names from the server, not from a list here: a hardcoded list is
+    // one more thing that has to be remembered when a tool lands, which is the
+    // failure this file exists to prevent.
+    for (const name of Object.keys(await toolNames())) {
+      // `health` is a liveness probe, described in the table and nowhere else.
+      if (name === 'health') continue;
       expect(readme.includes(`### \`${name}\``), `README has no section for ${name}`).toBe(true);
     }
   });

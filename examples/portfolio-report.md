@@ -26,7 +26,7 @@ Structured content:
 
 ```json
 {
-  "generatedAt": "2026-08-31T23:07:50.038Z",
+  "generatedAt": "2026-09-01T09:48:55.871Z",
   "source": "inline",
   "file": null,
   "siteCount": 3,
@@ -121,7 +121,7 @@ Structured content:
           "check": "domain",
           "ran": true,
           "severity": "ok",
-          "headline": "example.com expires 2027-08-13 (346 days).",
+          "headline": "example.com expires 2027-08-13 (345 days).",
           "error": null
         },
         {
@@ -179,7 +179,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.net/ answered 200 in 168ms.",
+          "headline": "https://example.net/ answered 200 in 89ms.",
           "error": null
         }
       ]
@@ -198,7 +198,7 @@ Structured content:
           "check": "domain",
           "ran": true,
           "severity": "ok",
-          "headline": "example.org expires 2027-08-30 (363 days).",
+          "headline": "example.org expires 2027-08-30 (362 days).",
           "error": null
         },
         {

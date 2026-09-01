@@ -56,7 +56,9 @@ Needs attention:
 
 Every tool also returns structured data alongside the text, so results can be
 sorted, filtered and fed into a report. Full input and output for each tool is in
-[`examples/`](examples/).
+[`examples/`](examples/), and a whole portfolio session — the weekly triage, a
+drill-down, and what the comparison against the previous run will and will not
+claim — is in [`examples/conversation.md`](examples/conversation.md).
 
 ## The tools
 

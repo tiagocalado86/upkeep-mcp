@@ -9,6 +9,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { createDefaultPorts } from '../src/lib/ports.js';
+import { runAccessibilityAudit } from '../src/tools/accessibility-audit.js';
 import { runDomainCheck } from '../src/tools/domain-check.js';
 import { runPortfolioReport } from '../src/tools/portfolio-report.js';
 import { runSeoAudit } from '../src/tools/seo-audit.js';
@@ -94,6 +95,20 @@ writeFileSync(
     '{ "name": "portfolio_report", "arguments": { "sites": [ /* three public domains */ ] } }',
     await runPortfolioReport(
       { sites: examplePortfolio.map((site) => ({ ...site, checks: [...site.checks] })) },
+      ports,
+    ),
+  ),
+);
+
+// The W3C's own "Before and After Demonstration": a page built to fail, kept
+// public so accessibility tooling has something honest to be pointed at.
+writeFileSync(
+  'examples/accessibility-audit.md',
+  render(
+    'accessibility_audit',
+    '{ "name": "accessibility_audit", "arguments": { "url": "https://www.w3.org/WAI/demos/bad/before/home.html" } }',
+    await runAccessibilityAudit(
+      { url: 'https://www.w3.org/WAI/demos/bad/before/home.html' },
       ports,
     ),
   ),

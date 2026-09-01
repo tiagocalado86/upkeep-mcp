@@ -9,7 +9,7 @@ Call:
 Text returned to the conversation:
 
 ```
-example.com expires 2027-08-13 (346 days).
+example.com expires 2027-08-13 (345 days).
 Registrar: RESERVED-Internet Assigned Numbers Authority.
 Nameservers: elliott.ns.cloudflare.com, hera.ns.cloudflare.com.
 Resolves: apex yes, www yes. DNSSEC: delegation signed.
@@ -22,7 +22,7 @@ Structured content:
   "domain": "example.com",
   "unicodeDomain": null,
   "registrableDomain": "example.com",
-  "checkedAt": "2026-08-31T09:58:12.361Z",
+  "checkedAt": "2026-09-01T09:48:53.504Z",
   "severity": "ok",
   "findings": [],
   "registration": {
@@ -37,7 +37,7 @@ Structured content:
     ],
     "registeredAt": "1995-08-14T04:00:00.000Z",
     "expiresAt": "2027-08-13T04:00:00.000Z",
-    "daysUntilExpiry": 346,
+    "daysUntilExpiry": 345,
     "unavailableReason": null,
     "expirySeverity": "ok"
   },
@@ -49,8 +49,8 @@ Structured content:
       "172.66.147.243"
     ],
     "aaaa": [
-      "2606:4700:10::6814:179a",
-      "2606:4700:10::ac42:93f3"
+      "2606:4700:10::ac42:93f3",
+      "2606:4700:10::6814:179a"
     ],
     "ns": [
       "elliott.ns.cloudflare.com",
@@ -63,11 +63,12 @@ Structured content:
       }
     ],
     "txt": [
-      "v=spf1 -all",
-      "_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9"
+      "_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9",
+      "v=spf1 -all"
     ],
     "caa": []
   },
+  "dnsResolved": true,
   "dnssec": {
     "delegationSigned": true,
     "source": "rdap"
