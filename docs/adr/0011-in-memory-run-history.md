@@ -39,6 +39,13 @@ process. Compare against it when it exists. Say plainly when it does not.
   invented regressions.
 - Only the previous run is kept, not a series. A trend over quarters is a
   different feature with different storage, and it would need the user's
-  explicit decision about where that data lives.
+  explicit decision about where that data lives. One consequence is visible in
+  ordinary use: a quick `checks: ["uptime"]` pass run between two full reports
+  becomes the baseline, so the second full report finds only the sites that
+  asked for uptime alone comparable. It says how many those were.
+- The report always states what the comparison did, including when nothing
+  moved. Saying nothing would be indistinguishable from never having compared,
+  which is the same failure as an empty list of regressions reading as "nothing
+  regressed".
 - If persistence is ever wanted, it belongs behind the same `RunHistory`
   interface, opted into by the user, and it needs its own ADR.
