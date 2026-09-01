@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { SERVER_NAME, SERVER_VERSION } from './lib/constants.js';
 import { createDefaultPorts, type Ports } from './lib/ports.js';
+import { registerAccessibilityAuditTool } from './tools/accessibility-audit.js';
 import { registerDomainCheckTool } from './tools/domain-check.js';
 import { registerQuarterlyReportPrompt } from './prompts/quarterly-report.js';
 import { registerPortfolioSitesResource } from './resources/portfolio-sites.js';
@@ -31,6 +32,7 @@ export function createServer(ports: Ports = createDefaultPorts()): McpServer {
   registerSslCheckTool(server, ports);
   registerUptimeCheckTool(server, ports);
   registerSeoAuditTool(server, ports);
+  registerAccessibilityAuditTool(server, ports);
   registerPortfolioReportTool(server, ports);
 
   registerPortfolioSitesResource(server, ports);

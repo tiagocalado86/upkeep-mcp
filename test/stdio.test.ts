@@ -110,6 +110,7 @@ describe('stdio transport', () => {
     const { tools } = result as { tools: { name: string }[] };
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'accessibility_audit',
       'domain_check',
       'health',
       'portfolio_report',

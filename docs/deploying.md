@@ -73,6 +73,16 @@ instances a determined caller can conjure.
 - Decide whether the URL goes in the README. A demo that has quietly stopped
   paying its own bill is worse than no demo.
 
+## The demo cannot run `accessibility_audit`
+
+The image ships no browser, deliberately. It keeps the container small, and a
+headless browser loading arbitrary pages on a stranger's request is a far larger
+surface than the target guard covers — the browser fetches whatever a page
+embeds, and none of that passes through the guard.
+
+The tool is still advertised, and answers with the message naming the command
+that installs a browser. Anyone who wants it runs the server locally.
+
 ## What this is not
 
 It is a demo, not a service. It has no authentication, no availability promise

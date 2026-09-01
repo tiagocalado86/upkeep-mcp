@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CheckName } from '../../src/lib/portfolio.js';
 import { createDefaultPorts } from '../../src/lib/ports.js';
 import { runDomainCheck } from '../../src/tools/domain-check.js';
+import { runAccessibilityAudit } from '../../src/tools/accessibility-audit.js';
 import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
 import { runSeoAudit } from '../../src/tools/seo-audit.js';
 import { runSslCheck } from '../../src/tools/ssl-check.js';
@@ -184,4 +185,23 @@ describe('portfolio_report against real domains', () => {
       regressed: [],
     });
   }, 60_000);
+});
+
+describe('accessibility_audit against a real page in a real browser', () => {
+  it('renders a page and reports what axe found', async () => {
+    // Skipped rather than failed when no browser is installed: this suite is
+    // run by hand, and a missing browser is a machine that has not run
+    // `playwright install`, not a broken build.
+    const result = await runAccessibilityAudit({ url: 'https://example.com/' }, ports);
+
+    if (result.isError === true) {
+      expect(text(result)).toContain('npx playwright install chromium');
+      return;
+    }
+
+    expect(structured(result)).toMatchObject({ audited: true, standard: 'wcag2aa' });
+    expect(structured(result)['pageTitle']).toBe('Example Domain');
+    expect(structured(result)['passCount']).toBeGreaterThan(0);
+    expect(structured(result)['axeVersion']).toMatch(/^\d+\.\d+\.\d+$/);
+  }, 90_000);
 });

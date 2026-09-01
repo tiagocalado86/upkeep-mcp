@@ -18,8 +18,14 @@ export const CHECK_NAMES = ['domain', 'ssl', 'uptime', 'seo', 'accessibility'] a
 /** One check, by name. */
 export type CheckName = (typeof CHECK_NAMES)[number];
 
-/** Checks that exist today. `accessibility` is Phase 4 and is accepted but not run. */
-export const IMPLEMENTED_CHECKS: readonly CheckName[] = ['domain', 'ssl', 'uptime', 'seo'];
+/** Checks that exist today. */
+export const IMPLEMENTED_CHECKS: readonly CheckName[] = [
+  'domain',
+  'ssl',
+  'uptime',
+  'seo',
+  'accessibility',
+];
 
 /** The default set for a file that does not say. */
 const DEFAULT_CHECKS: readonly CheckName[] = ['domain', 'ssl', 'uptime'];

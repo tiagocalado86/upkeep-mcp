@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { DnsRecords } from '../types.js';
 import { CheckError } from './errors.js';
+import { runAxe, type AxeRun } from './axe.js';
 import { createTtlCache } from './cache.js';
 import { LIMITS, TTL } from './defaults.js';
 import { hasDsRecord, resolveAddresses, resolveRecords } from './dns.js';
@@ -50,6 +51,16 @@ export interface HttpProbe {
   text(url: string, timeoutMs: number, maxBytes: number): Promise<TextResult>;
 }
 
+/** Auditing a rendered page in a real browser. */
+export interface BrowserProbe {
+  /**
+   * Runs axe-core over a page.
+   *
+   * @throws {CheckError} `not_found` when no browser is installed.
+   */
+  audit(url: string, tags: readonly string[]): Promise<AxeRun>;
+}
+
 /** Reading local files the user pointed this server at. */
 export interface FileReader {
   /**
@@ -74,6 +85,7 @@ export interface Ports {
   tls: TlsProbe;
   http: HttpProbe;
   robots: RobotsClient;
+  browser: BrowserProbe;
   files: FileReader;
   /** What the previous portfolio run found, for reporting what changed. */
   history: RunHistory;
@@ -236,6 +248,18 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
         return robotsCache.fetch(origin, () =>
           limiter.run(new URL(origin).host, () => fetchRobots(origin)),
         );
+      },
+    },
+    browser: {
+      // Rate limited like everything else: a browser makes many requests to one
+      // host, and being the slow guest is the point.
+      //
+      // Only the page's own URL passes the guard. A browser then fetches
+      // whatever that page embeds, which this cannot inspect — one more reason
+      // the published container ships no browser at all.
+      audit: async (url, tags) => {
+        await guard.assertPublic(new URL(url).hostname);
+        return limiter.run(new URL(url).host, () => runAxe(url, tags));
       },
     },
     files: { readText: readTextFile },

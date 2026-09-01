@@ -101,6 +101,7 @@ describe('the HTTP entrypoint', () => {
     const tools = (body.result?.['tools'] ?? []) as { name: string }[];
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'accessibility_audit',
       'domain_check',
       'health',
       'portfolio_report',

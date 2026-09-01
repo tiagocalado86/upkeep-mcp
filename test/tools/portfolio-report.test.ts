@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryHistory, type RunHistory } from '../../src/lib/history.js';
-import type { CheckName } from '../../src/lib/portfolio.js';
+import { CHECK_NAMES, IMPLEMENTED_CHECKS, type CheckName } from '../../src/lib/portfolio.js';
 import type { Ports } from '../../src/lib/ports.js';
 import { EMPTY_ROBOTS } from '../../src/lib/robots.js';
 import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
@@ -101,6 +101,9 @@ function portfolioPorts(
           status: 404,
           robots: EMPTY_ROBOTS,
         }),
+    },
+    browser: {
+      audit: () => Promise.reject(new Error('no browser fixture')),
     },
     files: {
       readText: (path) => {
@@ -288,24 +291,11 @@ describe('runPortfolioReport', () => {
     expect(text(result)).toContain('nonexistent');
   });
 
-  it('names a requested check that does not exist yet instead of ignoring it', async () => {
-    const result = await runPortfolioReport(
-      {
-        sites: [
-          {
-            name: 'A',
-            url: 'https://a.example',
-            checks: ['uptime', 'accessibility'] as CheckName[],
-          },
-          { name: 'B', url: 'https://b.example', checks: ['accessibility'] as CheckName[] },
-        ],
-      },
-      portfolioPorts({}),
-    );
-
-    const notes = structured(result)['notes'] as string[];
-    expect(notes[0]).toContain('accessibility was requested by 2 sites');
-    expect(text(result)).toContain('accessibility');
+  it('implements every check the portfolio format accepts', () => {
+    // While these two lists agree, no site can ask for something that is
+    // silently skipped. When they next diverge — a sixth check named before it
+    // is built — the report says so in its notes rather than dropping it.
+    expect([...IMPLEMENTED_CHECKS].sort()).toEqual([...CHECK_NAMES].sort());
   });
 
   it('reads the portfolio from a file when given no sites inline', async () => {
@@ -457,23 +447,14 @@ describe('runPortfolioReport', () => {
   it('does not report a site as healthy when none of its checks could run', async () => {
     const result = await runPortfolioReport(
       {
-        sites: [
-          {
-            name: 'Only A11y',
-            url: 'https://a11y.example',
-            checks: ['accessibility'] as CheckName[],
-          },
-        ],
+        sites: [{ name: 'Nothing asked', url: 'https://none.example', checks: [] as CheckName[] }],
       },
       portfolioPorts({}),
     );
 
     const site = sitesOf(result)[0];
     expect(site?.severity).toBe('unknown');
-    // One entry per check that was asked for, as the schema promises.
-    expect(site?.checks).toEqual([
-      expect.objectContaining({ check: 'accessibility', ran: false, severity: 'unknown' }),
-    ]);
+    expect(site?.checks).toEqual([]);
     expect(site?.findings.map((item) => item.code)).toContain('no_checks_ran');
     expect(text(result)).not.toContain('Nothing to do');
   });

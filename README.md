@@ -21,7 +21,7 @@ browser is implemented and useful today.
 | `health`              | Server name, version, Node.js version, uptime                               | Available |
 | `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links         | Available |
 | `portfolio_report`    | All of the above across a portfolio, sorted by urgency                      | Available |
-| `accessibility_audit` | WCAG violations via axe-core                                                | Planned   |
+| `accessibility_audit` | WCAG violations via axe-core, in a real browser                             | Available |
 
 It also exposes the `portfolio://sites` resource (the site list, for a client to
 read without spending a tool call) and the `quarterly_report` prompt (turns a
@@ -154,6 +154,24 @@ The portfolio file format is documented in
 [`sites.example.json`](sites.example.json). Copy it to `sites.json` — which is
 gitignored, so a real client list never gets committed.
 
+### `accessibility_audit`
+
+Input: `url`, plus optional `standard` (`wcag2aa` by default; also `wcag2a`,
+`wcag21aa`, `wcag22aa`, `best-practice`).
+
+Opens the page in a headless browser and runs axe-core over it. Returns the
+rules that failed, how many elements failed each, CSS selectors for the first
+few, and how many rules axe could not decide on its own.
+
+This is the only tool that needs a browser, and it is optional: nothing is
+downloaded when you install this project. Run `npx playwright install chromium`
+once if you want it. Without it the tool says so and names that command, and
+every other check carries on.
+
+Automated rules find roughly a third of accessibility problems. A page with no
+violations passed the machine-checkable part, which is not the same as being
+usable — which is why the count of undecided rules is reported alongside.
+
 ## Installation
 
 Requires **Node.js 22 or newer**.
@@ -256,6 +274,10 @@ that does less.
   parsing costs roughly the square of the nesting depth, so a document built to
   be absurd would block the server for minutes. `seo_audit` measures the depth
   first and reports the refusal.
+- **Accessibility is only checked as far as a machine can.** Automated rules
+  find roughly a third of real problems. The tool reports what axe could not
+  decide rather than counting it as a pass, but no green result here is an
+  accessibility statement.
 - **Nothing here judges how a page ranks.** `seo_audit` reports what is in the
   HTML. Rankings depend on things no public endpoint exposes.
 - **"What changed since last time" lasts as long as the server process.** The
@@ -277,6 +299,8 @@ that does less.
   of this, what they do better, and the gap this one fills
 - [`docs/deploying.md`](docs/deploying.md) — running the HTTP instance, and what
   is different about it
+- [`docs/adr/`](docs/adr/) is where the awkward decisions live, including why
+  the browser is optional ([0013](docs/adr/0013-playwright-core-and-an-optional-browser.md))
 - [`docs/adr/`](docs/adr/) — one short record per structural decision
 - [`SECURITY.md`](SECURITY.md) — threat model and reporting policy
 - [`CHANGELOG.md`](CHANGELOG.md)

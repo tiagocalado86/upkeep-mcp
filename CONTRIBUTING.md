@@ -3,7 +3,7 @@
 Thanks for taking a look. This is a small, opinionated project; the sections
 below cover what you need to work on it without guessing.
 
-> **Status:** Phase 3 is complete. `domain_check`, `ssl_check`, `uptime_check`,
+> **Status:** All four phases are complete. `domain_check`, `ssl_check`, `uptime_check`,
 > `seo_audit` and `portfolio_report` work and are covered by tests, along with
 > the `portfolio://sites` resource and the `quarterly_report` prompt. Phase 4
 > adds `accessibility_audit` and the Streamable HTTP transport.

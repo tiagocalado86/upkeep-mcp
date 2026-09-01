@@ -29,8 +29,8 @@
     "  notes              Context for you; carried through into the report output.",
     "",
     "Valid check names: domain, ssl, uptime, seo, accessibility.",
-    "accessibility is accepted but not implemented yet; portfolio_report says so rather",
-    "than silently skipping it."
+    "accessibility needs a browser: run `npx playwright install chromium` once, or the",
+    "check reports as unknown for that site rather than as a pass it did not earn."
   ],
 
   "version": 1,

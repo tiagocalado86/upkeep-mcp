@@ -38,6 +38,14 @@ export const TIMEOUTS = {
   pageMs: 15_000,
   /** Fetching `robots.txt` or a sitemap, which are small and should be quick. */
   supportFileMs: 8_000,
+  /**
+   * Launching a browser, loading a page and running axe over it.
+   *
+   * Far longer than any other deadline here, and it has to be: a cold browser
+   * start is seconds before the page is even requested, and axe walks the whole
+   * rendered tree afterwards.
+   */
+  browserMs: 45_000,
 } as const;
 
 /** Cache lifetimes, in milliseconds. */

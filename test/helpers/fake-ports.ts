@@ -3,6 +3,7 @@ import type { Ports } from '../../src/lib/ports.js';
 import { CheckError } from '../../src/lib/errors.js';
 import { createMemoryHistory, type RunHistory } from '../../src/lib/history.js';
 import type { RdapLookup } from '../../src/lib/rdap.js';
+import type { AxeRun } from '../../src/lib/axe.js';
 import { EMPTY_ROBOTS, parseRobots, type RobotsFetch } from '../../src/lib/robots.js';
 import type { TlsInspection } from '../../src/lib/tls.js';
 import type {
@@ -141,6 +142,8 @@ export interface FakeOptions {
   robots?: string;
   /** Local files the run may read, keyed by the path a caller would pass. */
   files?: Record<string, string>;
+  /** What a browser audit returns, or an Error for a browser that will not start. */
+  axe?: AxeRun | Error;
   /** Run history. Defaults to a fresh one, so nothing has been seen before. */
   history?: RunHistory;
   now?: Date;
@@ -214,6 +217,10 @@ export function fakePorts(options: FakeOptions = {}): Ports {
     robots: {
       forOrigin: (origin) => Promise.resolve(fakeRobots(origin, options.robots)),
     },
+    browser: {
+      audit: () =>
+        settle(options.axe, axeRun({ violations: [], passCount: 40, incompleteCount: 0 })),
+    },
     files: {
       readText: (path) => {
         const contents = options.files?.[path];
@@ -224,6 +231,24 @@ export function fakePorts(options: FakeOptions = {}): Ports {
     },
     history: options.history ?? createMemoryHistory(),
     now: () => options.now ?? NOW,
+  };
+}
+
+/**
+ * A browser audit that found nothing, as a base for tests to override.
+ *
+ * @param overrides Fields to change.
+ * @returns An axe run.
+ */
+export function axeRun(overrides: Partial<AxeRun> = {}): AxeRun {
+  return {
+    url: 'https://example.com/',
+    title: 'Example',
+    violations: [],
+    passCount: 40,
+    incompleteCount: 0,
+    axeVersion: '4.13.0',
+    ...overrides,
   };
 }
 

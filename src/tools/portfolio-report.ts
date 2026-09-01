@@ -16,6 +16,7 @@ import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
 import { fail, guard, succeed } from '../lib/tool-result.js';
+import { checkAccessibilityForPortfolio } from './accessibility-audit.js';
 import { checkDomainForPortfolio } from './domain-check.js';
 import { checkSeoForPortfolio } from './seo-audit.js';
 import { checkSslForPortfolio } from './ssl-check.js';
@@ -445,6 +446,10 @@ async function checkSite(
 /**
  * Dispatches one check for one site.
  *
+ * The switch is exhaustive and has no default: a sixth check added to
+ * `CheckName` fails to compile here until it is dispatched, which is a better
+ * reminder than a branch returning "not implemented yet" at runtime.
+ *
  * @param check Which check to run.
  * @param site The site.
  * @param ports The I/O boundary.
@@ -468,11 +473,11 @@ async function runCheck(check: CheckName, site: Site, ports: Ports): Promise<Che
       return checkUptimeForPortfolio(site.url, ports);
     case 'seo':
       return checkSeoForPortfolio(site.url, ports, site.maxLinks);
-    default:
-      return {
-        ok: false,
-        error: { code: 'invalid_input', message: `${check} is not implemented yet` },
-      };
+    case 'accessibility':
+      // A site that asks for this and runs where no browser is installed gets
+      // a check that could not run — reported as `unknown` for that site, never
+      // as a clean result.
+      return checkAccessibilityForPortfolio(site.url, ports);
   }
 }
 
