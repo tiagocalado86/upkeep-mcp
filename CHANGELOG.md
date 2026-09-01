@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rules a page fails, how many elements fail each, and where they are. The
   browser is optional — `playwright-core` downloads nothing on install — so a
   machine without one gets an actionable message naming the single command that
-  fixes it, and every other check keeps working. See
+  fixes it, and every other check keeps working. Browsers get their own
+  concurrency pool: an audit holds a slot for seconds while the browser makes
+  requests the limiter never sees, so sharing one starved every other check
+  without pacing any browser traffic. See
   `docs/adr/0013-playwright-core-and-an-optional-browser.md`.
 - A Streamable HTTP entrypoint, `src/http.ts`, for a public demo instance: the
   SDK's own handler behind a hand-written `node:http` adapter, so no HTTP

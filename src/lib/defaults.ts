@@ -73,6 +73,17 @@ export const TTL = {
 export const LIMITS = {
   /** Requests in flight across all hosts. */
   maxConcurrentTotal: 5,
+  /**
+   * Browsers open at once.
+   *
+   * Counted separately from the request limiter, and not by accident. An audit
+   * holds its slot for as long as the page takes — seconds, not milliseconds —
+   * while the browser makes requests the limiter never sees. Sharing the pool
+   * meant four audits starving every other check of the five slots, without
+   * pacing a single one of the browser's own requests. Two is what a laptop
+   * running a portfolio can hold without swapping.
+   */
+  maxConcurrentBrowsers: 2,
   /** Requests in flight to any single host. */
   maxConcurrentPerHost: 1,
   /** Minimum gap between two requests to the same host. */

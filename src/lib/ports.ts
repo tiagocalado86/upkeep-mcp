@@ -108,6 +108,7 @@ let shared: {
   robotsCache: ReturnType<typeof createTtlCache<RobotsFetch>>;
   history: RunHistory;
   limiter: ReturnType<typeof createHostLimiter>;
+  browsers: ReturnType<typeof createHostLimiter>;
 } | null = null;
 
 /**
@@ -126,6 +127,11 @@ function sharedState(): NonNullable<typeof shared> {
       minIntervalMs: LIMITS.minIntervalMs,
       maxConcurrentPerHost: LIMITS.maxConcurrentPerHost,
       maxConcurrentTotal: LIMITS.maxConcurrentTotal,
+    }),
+    browsers: createHostLimiter({
+      minIntervalMs: LIMITS.minIntervalMs,
+      maxConcurrentPerHost: LIMITS.maxConcurrentPerHost,
+      maxConcurrentTotal: LIMITS.maxConcurrentBrowsers,
     }),
   };
   return shared;
@@ -182,7 +188,8 @@ export interface PortOptions {
  * @throws Never.
  */
 export function createDefaultPorts(options: PortOptions = {}): Ports {
-  const { dnsCache, dsCache, rdapCache, tlsCache, robotsCache, history, limiter } = sharedState();
+  const { dnsCache, dsCache, rdapCache, tlsCache, robotsCache, history, limiter, browsers } =
+    sharedState();
   const guard: TargetGuard =
     options.publicTargetsOnly === true
       ? allowOnlyPublicTargets((hostname) => resolveAddresses(hostname))
@@ -257,15 +264,18 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       },
     },
     browser: {
-      // Rate limited like everything else: a browser makes many requests to one
-      // host, and being the slow guest is the point.
+      // Its own pool, not the request limiter's. An audit holds a slot for
+      // seconds while the browser makes requests nothing here counts, so
+      // sharing the pool starved every other check without pacing any of the
+      // browser's own traffic. Still one at a time per host, which is the part
+      // that was politeness rather than bookkeeping.
       //
       // Only the page's own URL passes the guard. A browser then fetches
       // whatever that page embeds, which this cannot inspect — one more reason
       // the published container ships no browser at all.
       audit: async (url, tags) => {
         await guard.assertPublic(new URL(url).hostname);
-        const run = await limiter.run(new URL(url).host, () => runAxe(url, tags));
+        const run = await browsers.run(new URL(url).host, () => runAxe(url, tags));
         // Where it ended, not only where it was sent: a public URL that
         // redirects to loopback would otherwise return that page's title and
         // selectors to the caller.

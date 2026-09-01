@@ -165,4 +165,40 @@ describe('createHostLimiter', () => {
     expect(seen).toHaveBeenCalledTimes(2);
     expect(time.read()).toBe(500);
   });
+
+  it('keeps two pools independent, which is why browsers get their own', async () => {
+    // An audit holds its slot for seconds. Sharing one pool with the request
+    // limiter meant a handful of audits starved every other check, while pacing
+    // none of the browser's own traffic.
+    const requests = createHostLimiter({
+      minIntervalMs: 0,
+      maxConcurrentPerHost: 1,
+      maxConcurrentTotal: 2,
+    });
+    const browsers = createHostLimiter({
+      minIntervalMs: 0,
+      maxConcurrentPerHost: 1,
+      maxConcurrentTotal: 1,
+    });
+
+    let held = 0;
+    const forever = new Promise<void>(() => undefined);
+    void browsers.run('a.example', () => {
+      held += 1;
+      return forever;
+    });
+
+    let ranAnyway = false;
+    void requests.run('b.example', () => {
+      ranAnyway = true;
+      return Promise.resolve();
+    });
+
+    // The limiter admits work on a microtask, not synchronously.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(held).toBe(1);
+    expect(ranAnyway).toBe(true);
+  });
 });

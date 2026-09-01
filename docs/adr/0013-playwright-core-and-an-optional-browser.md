@@ -36,6 +36,10 @@ single command that fixes it. Every other tool keeps working.
   and a headless browser loading arbitrary pages on a stranger's request is a
   far larger surface than the target guard in ADR 0012 covers, since the browser
   fetches whatever a page embeds and that is not checked.
+- Browsers get their own concurrency pool rather than sharing the request
+  limiter's. An audit holds a slot for seconds while the browser makes requests
+  nothing here counts, so sharing one pool starved every other check without
+  pacing any of the browser's own traffic. Two at once; still one per host.
 - axe-core is injected as source into the page rather than pulled from a CDN, so
   the audit runs offline against the version this project pins, and the report
   names that version so a result can be reproduced.
