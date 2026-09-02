@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.2] - 2026-09-02
 
+### Added
+
+- The first version to actually reach npm, so `npx -y upkeep-mcp` works. 0.3.1
+  described that install and could not deliver it: npm had begun requiring 2FA
+  to publish, and had stopped enrolling authenticator apps, so the account
+  needed a passkey and the first publish a browser challenge.
+
 ### Changed
 
 - Releases publish over **OIDC trusted publishing** instead of an npm token in
@@ -31,8 +38,9 @@ last time — run two full reports back to back to compare them`. The count on i
 
 ### Added
 
-- Published to npm, so installation is `npx -y upkeep-mcp` rather than four
-  steps — the brief's first definition-of-done line, and the last one open.
+- Everything needed to publish, so that installation becomes `npx -y upkeep-mcp`
+  rather than four steps — the brief's first definition-of-done line, and the
+  last one open.
   `playwright-core` downloads no browser on install, so that stays a small
   fetch. A second binary, `upkeep-mcp-http`, starts the Streamable HTTP
   entrypoint, which an installed package previously had no way to reach.

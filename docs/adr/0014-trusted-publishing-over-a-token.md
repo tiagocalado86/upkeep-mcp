@@ -53,10 +53,11 @@ No `NPM_TOKEN`. No repository secret of any kind for releases.
   surfaces as a failed release, never as a warning. Renaming this file breaks
   publishing until the setting is updated to match.
 - The first publish of a package still cannot use it: the configuration lives on
-  a package page that does not exist yet. `0.3.1` was therefore published by
-  hand under an interactive 2FA challenge, and every release after it is
-  automated.
+  a package page that does not exist yet. `0.3.2` was therefore published by
+  hand under an interactive 2FA challenge — `0.3.1`, which announced the move to
+  npm, never reached the registry at all. Every release after it is automated.
 - Publishing now requires 2FA on the maintainer account, which the CLI could not
   enable — `npm profile enable-2fa` is refused for a browser-issued session.
-  Enrolment is a web operation, and the recovery codes are the only way back
-  into an account that owns a package name.
+  Enrolment is a web operation, npm no longer registers authenticator apps, and
+  so a manual publish means a passkey challenge in a browser. The recovery codes
+  are the only way back into an account that owns a package name.
