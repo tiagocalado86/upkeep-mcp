@@ -5,7 +5,11 @@
 # runs again here rather than trusting the tag: a tag can be pushed from a dirty
 # tree, and `npm publish` is not reversible.
 #
-# One-time setup: an npm automation token in the repository secret NPM_TOKEN.
+# There is no publish token. npm authenticates this workflow over OIDC, which
+# means nothing long-lived to leak, rotate or forget — see
+# docs/adr/0014-trusted-publishing-over-a-token.md. One-time setup: name this
+# repository and this workflow file as the trusted publisher on the package's
+# npm settings page.
 name: Release
 
 on:
@@ -14,8 +18,8 @@ on:
 
 permissions:
   contents: read
-  # Provenance ties the published tarball to this workflow and this commit, so
-  # anyone can verify that what is on npm was built from what is on GitHub.
+  # The OIDC token npm exchanges for a short-lived credential. Provenance rides
+  # on the same identity, so the tarball is tied to the commit it was built from.
   id-token: write
 
 jobs:
@@ -30,6 +34,10 @@ jobs:
           node-version: '22.x'
           cache: npm
           registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm 11.5.1 or newer; Node 22 still ships 10.x.
+      - name: npm new enough to publish over OIDC
+        run: npm install -g npm@latest
 
       - run: npm ci
 
@@ -50,7 +58,7 @@ jobs:
             exit 1
           fi
 
+      # No NODE_AUTH_TOKEN and no --provenance: OIDC supplies the credential and
+      # npm attaches provenance by itself when the publish is a trusted one.
       - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

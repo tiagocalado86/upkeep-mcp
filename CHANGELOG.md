@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Releases publish over **OIDC trusted publishing** instead of an npm token in
+  a repository secret. npm now requires 2FA to publish, and the one form of that
+  a workflow could use — a granular token with 2FA bypass — loses the ability to
+  publish in January 2027, so the documented setup shipped in 0.3.1 had an
+  expiry date and a secret that had never been created. There is now no
+  long-lived publish credential at all, and provenance is attached by npm rather
+  than asked for with a flag. See
+  [ADR 0014](docs/adr/0014-trusted-publishing-over-a-token.md).
+
 - `portfolio_report` now says _why_ it could not compare part of a run, not only
   how much of it: `1 of 5 sites comparable; 4 of them measured different checks
 last time — run two full reports back to back to compare them`. The count on its

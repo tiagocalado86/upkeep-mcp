@@ -181,12 +181,21 @@ package that ends up behind the repository.
 3. `npm run check`, commit, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push with
    `--follow-tags`.
 4. `.github/workflows/release.yml` runs the whole gate again, refuses a tag whose
-   version does not match `package.json`, and publishes with `--provenance`, so
-   the tarball on npm is tied to the commit it was built from.
+   version does not match `package.json`, and publishes. npm authenticates the
+   workflow over OIDC and attaches provenance itself, so the tarball on npm is
+   tied to the commit it was built from.
 
-One-time setup: an npm automation token in the repository secret `NPM_TOKEN`.
-The first release has to be published by hand — `npm publish --access public` —
-because a token cannot be issued for a package that does not exist yet.
+One-time setup, on npmjs.com rather than in this repository: name this
+repository and `release.yml` as the package's trusted publisher. There is no
+`NPM_TOKEN` and no repository secret — see
+[ADR 0014](docs/adr/0014-trusted-publishing-over-a-token.md). npm does not check
+that configuration when it is saved, so renaming this workflow file breaks
+publishing until the setting is changed to match.
+
+Publishing requires 2FA on the maintainer account, and the very first release of
+a package still has to go out by hand — `npm publish --access public`, answering
+the challenge — because a trusted publisher is configured on a package page that
+does not exist yet.
 
 The listing in the [MCP registry](https://registry.modelcontextprotocol.io) is
 separate and manual: `mcp-publisher login github` then `mcp-publisher publish`,
