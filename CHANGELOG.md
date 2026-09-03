@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The documented Cloud Run deployment moves to a European region, pins the
+  execution environment and names its request timeout. The old command chose a
+  US region to keep a free gibibyte of North American egress; priced out, that
+  allowance is worth about half a cent a month to a server that pulls pages
+  (ingress, free) and returns 5.6 KB reports, while the latency it cost applied
+  to every outbound check. `docs/deploying.md` also gained the two things that
+  bite on a first deploy — the `roles/run.builder` grant, whose absence reports
+  itself as an internal platform error, and a logs exclusion, which is the one
+  runaway cost that neither `--max-instances` nor a spend cap contains.
+
+- Why the deployment target is Cloud Run is now written down in
+  [ADR 0015](docs/adr/0015-cloud-run-as-the-deployment-target.md), along with
+  what would reopen the question. It records one constraint found while
+  checking: outbound UDP to arbitrary internet hosts does not leave Cloud Run,
+  so the day `dns.ts` queries authoritative nameservers directly, every such
+  query fails there — and `optional()` would report the failure as "no such
+  record" rather than as an error.
+
 ## [0.3.2] - 2026-09-02
 
 ### Added
