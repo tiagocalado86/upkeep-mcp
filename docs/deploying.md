@@ -54,6 +54,22 @@ comparison and what would reopen it.
 Its free tier is perpetual and generous for a demo: 2 million requests,
 180,000 vCPU-seconds and 360,000 GiB-seconds a month.
 
+### Grant this before the first deploy
+
+`--source .` builds through Cloud Build, which since mid-2024 runs as the
+compute default service account rather than the old Cloud Build one. Without
+`roles/run.builder` on it, the first deploy fails with
+
+```
+ERROR: (gcloud.run.deploy) NOT_FOUND: Build failed.
+The service has encountered an internal error. Please try again later.
+```
+
+which is a permission error wearing a platform error's clothes. Grant the role
+and give it a couple of minutes to propagate.
+
+### The deploy
+
 ```bash
 gcloud run deploy upkeep-mcp \
   --source . \
@@ -106,19 +122,19 @@ no MX and no NS.
 
 Whoever adds it: verify against a deployed instance, not locally.
 
-### Before the first deploy
+### The first thing to check once it is live
 
-`--source .` builds through Cloud Build, which since mid-2024 runs as the
-compute default service account rather than the old Cloud Build one. Without
-`roles/run.builder` on it, the first deploy fails with
+No provider documents outbound UDP behaviour clearly, so the paragraph above is
+reasoning, not a measurement. Point a client at the new instance and call
+`domain_check` on a domain known to publish a full set of records:
 
+```json
+{ "domain": "google.com" }
 ```
-ERROR: (gcloud.run.deploy) NOT_FOUND: Build failed.
-The service has encountered an internal error. Please try again later.
-```
 
-which is a permission error wearing a platform error's clothes. Grant the role
-and give it a couple of minutes to propagate.
+A, AAAA, NS, MX, TXT and CAA should all come back populated. Empty sets there
+mean DNS is failing on the platform and `optional()` is describing the failure
+as an absence — which looks like a clean result and is not one.
 
 ### What only you can do
 
