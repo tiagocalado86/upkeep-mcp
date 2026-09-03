@@ -110,6 +110,16 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       return;
     }
 
+    // The slot is held until the body has finished writing, not until the
+    // handler returns: what the cap is protecting is the outbound work a tool
+    // does while it streams its answer. That is only sound while every response
+    // ends on its own.
+    //
+    // One shape would not: `subscriptions/listen` is served over a stream that
+    // closes on client disconnect, so eight of them would hold every slot and
+    // shut the instance to everyone. The transport refuses that method here —
+    // measured, including with a `bus` and subscription capabilities declared —
+    // so the shape cannot arise. `test/http.test.ts` fails if that ever changes.
     const answer = await handler.fetch(toWebRequest(request, url, body));
     await writeResponse(response, answer);
   } catch (cause) {

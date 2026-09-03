@@ -159,4 +159,52 @@ describe('the HTTP entrypoint', () => {
     expect(statuses).toContain(429);
     expect(statuses.filter((status) => status === 200).length).toBeGreaterThan(0);
   }, 30_000);
+
+  it('does not let open streams exhaust the concurrency cap', async () => {
+    // The entrypoint holds a caller's concurrency slot until the response body
+    // has finished writing. A response that never finishes would hold one for
+    // ever, and twelve of them would close the instance to everybody — there is
+    // no authentication in front of this.
+    //
+    // `subscriptions/listen` is the request that asks for such a stream. It is
+    // refused with -32601 today, because `createServer` registers no
+    // subscription capability. This test fails the day one is added without the
+    // limiter learning to tell a long-lived stream from a request.
+    const streams = await Promise.all(
+      Array.from({ length: 12 }, (_unused, index) =>
+        fetch(`${BASE}/mcp`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            // Distinct callers, so this measures the global concurrency cap and
+            // not one caller's token bucket.
+            'x-forwarded-for': `203.0.113.${String(index)}`,
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 200 + index,
+            method: 'subscriptions/listen',
+            params: { notifications: { toolsListChanged: true } },
+          }),
+        }),
+      ),
+    );
+
+    // Deliberately left unread: an unfinished body is the whole point.
+    const stillServed = await fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-forwarded-for': '203.0.113.200',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 299, method: 'tools/list', params: {} }),
+    });
+
+    expect(stillServed.status).toBe(200);
+
+    await Promise.all(streams.map(async (stream) => stream.body?.cancel()));
+    await stillServed.text();
+  }, 30_000);
 });
