@@ -22,6 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `accessibility_audit` on a hosted instance told the caller to run
+  `npx playwright install chromium`, which is the fix on the machine the server
+  runs on and unfollowable by someone connecting to somebody else's — it read as
+  a broken deployment rather than as a documented limit. A public instance now
+  answers that it runs no browser, that every other check still works, and that
+  auditing a page means running the server yourself. The tool's description says
+  the same thing before anyone calls it.
+
+- [ADR 0013](docs/adr/0013-playwright-core-and-an-optional-browser.md) is
+  amended for a container that is no longer only a demo: the decision not to
+  ship a browser survives the change, the guard gap is stated as what it is —
+  subresources bypass the port rule, because only the page's own URL is
+  checked — and the reason adding Chromium is not a one-line change is written
+  down. `playwright-core` has no musl build; `playwright install` succeeds on
+  Alpine and the browser dies at launch.
+
 - The documented Cloud Run deployment moves to a European region, pins the
   execution environment and names its request timeout. The old command chose a
   US region to keep a free gibibyte of North American egress; priced out, that

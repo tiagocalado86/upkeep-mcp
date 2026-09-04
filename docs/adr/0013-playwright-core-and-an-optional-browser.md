@@ -47,3 +47,33 @@ single command that fixes it. Every other tool keeps working.
   says so, in its description and in its output, because a green result here is
   a floor and reporting it as a verdict would be the same class of overstatement
   this project keeps finding in its own output.
+- **Amended 2026-09-05, when the container stopped being only a demo.** This ADR
+  weighed a browser against a public _demo_; `docs/deploying.md` now describes an
+  instance meant to be usable as a connector, which is a stronger reason to want
+  the tool and does not change the answer. What it does change is what the caller
+  is told. The refusal named `npx playwright install chromium` — the fix on the
+  machine the server runs on, and unfollowable by someone connecting to somebody
+  else's. A hosted instance now answers "run the server on your own machine"
+  (`rethrowForRemoteCaller` in `src/lib/ports.ts`), and the tool's description
+  says a hosted instance cannot run this check before anyone calls it.
+- **The gap this leaves, stated sharply: subresources bypass the port rule.**
+  ADR 0012's guard checks a page's own URL, host and port. The browser then
+  fetches whatever that page embeds — scripts, frames, images, fonts — and none
+  of it passes `assertReachable`. A page that embeds a URL on a port this server
+  refuses to open itself has it fetched anyway, from the deployment's address.
+  So the port rule holds on every request this project _makes_ and on no
+  subresource, which is the whole distance between "this server is not a port
+  scanner" and "this process issues no unchecked request". Shipping no browser
+  is what keeps that distance out of a public instance; adding one closes it
+  only if the browser is put behind a proxy that applies the same guard.
+- **Adding Chromium to this image is not a one-line change: `playwright-core`
+  does not support Alpine.** Its platform table has no musl entry and falls back
+  to `ubuntu24.04`, so `npx playwright install chromium` on `node:22-alpine`
+  _succeeds_, downloads a glibc build, and dies at `chromium.launch()` with a
+  loader error that matches neither branch of the check in `launch()`
+  (`src/lib/axe.ts`) — reported as "could not start a browser", not as the
+  actionable "none is installed". Doing it properly means changing the base
+  image, which takes the image from about 200 MB to about 550 MB, pushes memory
+  past the `--memory 512Mi` in the deploy command, and reopens the
+  `--execution-environment gen1` pin. Whoever wants the tool on a hosted
+  instance is choosing all of that, not a package.

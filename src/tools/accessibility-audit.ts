@@ -249,6 +249,8 @@ export function registerAccessibilityAuditTool(
         '',
         'It needs a browser. Nothing else in this server does, so if none is installed this tool',
         'says so and names the one command that fixes it, while every other check keeps working.',
+        'A hosted instance of this server ships no browser at all and cannot run this check for',
+        'anyone: to audit a page, run the server on your own machine.',
         '',
         'Automated rules find roughly a third of accessibility problems. A page with no violations',
         'is a page that passed the machine-checkable part, which is not the same as being usable,',

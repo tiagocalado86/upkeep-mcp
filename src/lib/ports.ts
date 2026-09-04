@@ -223,6 +223,39 @@ async function assertReachable(guard: TargetGuard, url: URL): Promise<void> {
 }
 
 /**
+ * Rewrites the "no browser is installed" refusal for a caller who is not on
+ * this machine.
+ *
+ * `runAxe` names `npx playwright install chromium`, which is the fix on the
+ * machine the server runs on. A public instance is somebody else's machine and
+ * ships no browser on purpose
+ * (`docs/adr/0013-playwright-core-and-an-optional-browser.md`), so that advice
+ * is unfollowable there — and it reads as a broken deployment rather than as a
+ * documented limit of the hosted instance.
+ *
+ * Exported for its own test: the hosted instance is the one configuration this
+ * project cannot exercise offline, since the machine running the suite has a
+ * browser.
+ *
+ * @param cause Whatever the audit threw.
+ * @returns Never.
+ * @throws {CheckError} `not_found` worded for a remote caller when the browser
+ *   was missing; the original failure, untouched, for anything else.
+ */
+export function rethrowForRemoteCaller(cause: unknown): never {
+  if (cause instanceof CheckError && cause.code === 'not_found') {
+    throw new CheckError(
+      'not_found',
+      'this server runs no browser, so accessibility_audit cannot run here; every other check can. ' +
+        'To audit a page, run the server on your own machine: `npx -y upkeep-mcp`, then ' +
+        '`npx playwright install chromium` once',
+      { cause },
+    );
+  }
+  throw cause;
+}
+
+/**
  * Builds the real ports, with caching and per-host rate limiting wired in.
  *
  * The limiter is keyed by the host actually contacted, never by the domain being
@@ -321,7 +354,14 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       // the published container ships no browser at all.
       audit: async (url, tags) => {
         await assertReachable(guard, new URL(url));
-        const run = await browsers.run(new URL(url).host, () => runAxe(url, tags));
+        const run = await browsers
+          .run(new URL(url).host, () => runAxe(url, tags))
+          // Only on a public instance: locally, "install a browser" is exactly
+          // the right thing to tell the person who started the server.
+          .catch((cause: unknown) => {
+            if (options.publicTargetsOnly === true) rethrowForRemoteCaller(cause);
+            throw cause;
+          });
         // Where it ended, not only where it was sent: a public URL that
         // redirects to loopback would otherwise return that page's title and
         // selectors to the caller.
