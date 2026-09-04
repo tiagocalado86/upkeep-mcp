@@ -295,8 +295,8 @@ true })` refuses any host resolving outside public unicast space — loopback,
   this release needs sits on that boundary. See
   `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.2...HEAD
-[0.3.2]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.1...v0.3.2
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.1...HEAD
+[0.3.2]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.1...2767d10
 [0.3.1]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.1.0...v0.2.0

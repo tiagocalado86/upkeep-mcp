@@ -109,9 +109,13 @@ downloads are ingress and free, while a whole `portfolio_report` goes back as
 about 5.6 KB. At the traffic a demo sees, that free gibibyte is worth roughly
 half a cent a month. Latency to European targets is worth more.
 
-`europe-southwest1` (Madrid) is nearer still. Confirm it is a Tier 1 region
-before choosing it: a Tier 2 region costs 1.4× for compute and burns the free
-tier at the same rate.
+`europe-southwest1` (Madrid) is nearer still, and it is a Tier 1 region, so it
+costs the same to run. What it does not have is Cloud Run **domain mapping**,
+which `europe-west1` does. That only matters the day this server answers on a
+name of its own instead of a `run.app` URL — but on that day Madrid means
+moving the service or paying for a load balancer in front of it, and the
+latency it saves is a few milliseconds on a check that already budgets ten
+seconds. Hence `europe-west1` in the command above.
 
 ### Outbound UDP leaves this server one feature from breaking
 
