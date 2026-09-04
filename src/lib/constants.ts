@@ -10,7 +10,7 @@
 export const SERVER_NAME = 'upkeep-mcp';
 
 /** Semantic version of the server. Must match `version` in `package.json`. */
-export const SERVER_VERSION = '0.3.2';
+export const SERVER_VERSION = '0.3.3';
 
 /**
  * Sent on every outgoing HTTP request.
