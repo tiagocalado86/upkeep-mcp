@@ -62,6 +62,31 @@ describe('createHostLimiter', () => {
     expect(time.read()).toBe(500);
   });
 
+  it('still spaces them when the second request was queued, not sequential', async () => {
+    // The two calls above are sequential: the second one arrives after the
+    // first has released, so the interval is applied on a fresh call. Callers
+    // do not behave like that — `seo_audit` hands a page's whole link list to
+    // the limiter at once, so the second request to a host is already waiting
+    // when the first releases, and the interval has to survive the queue.
+    const time = fakeTime();
+    const limiter = createHostLimiter({
+      minIntervalMs: 500,
+      maxConcurrentPerHost: 1,
+      maxConcurrentTotal: 5,
+      ...time,
+    });
+
+    const startedAt: number[] = [];
+    const record = (): Promise<void> => {
+      startedAt.push(time.read());
+      return Promise.resolve();
+    };
+
+    await Promise.all([limiter.run('a.example', record), limiter.run('a.example', record)]);
+
+    expect(startedAt).toEqual([0, 500]);
+  });
+
   it('does not make one host wait for another', async () => {
     const time = fakeTime();
     const limiter = createHostLimiter({
