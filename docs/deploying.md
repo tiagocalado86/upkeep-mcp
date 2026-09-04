@@ -87,11 +87,18 @@ gcloud run deploy upkeep-mcp \
 limiter already caps what one instance will take, and this caps how many
 instances a determined caller can conjure.
 
-`--timeout 300` is sized from the slowest thing this server does. A
-`portfolio_report` over twenty sites runs five checks at a time, one per host,
-half a second apart, each page allowed fifteen seconds — two to four minutes in
-the worst case. The platform default is also 300s; naming it here is a note that
-the number is load-bearing, and that a larger portfolio needs a larger number.
+`--timeout 300` is sized from the slowest thing this server does. Measured on a
+home connection, a `portfolio_report` over twenty public sites takes **8 seconds**
+for domain, SSL and uptime, and **60 seconds** once `seo_audit` joins them at the
+default 25 links a site — link checking is one request per link, paced at half a
+second per host, and it is the whole of the difference. A site that does not
+answer adds its own deadline rather than its own duration: one host refusing
+connections cost 13 seconds of the run it was in.
+
+That leaves real headroom at 300s, and the platform default is also 300s. Naming
+it here is a note that the number is load-bearing: a portfolio much past twenty
+sites with `seo` enabled, or a client on a slower link than the one this was
+measured on, needs a larger one.
 
 A European region because the egress argument that once pointed at the United
 States does not survive arithmetic. Internet egress is priced by **destination**

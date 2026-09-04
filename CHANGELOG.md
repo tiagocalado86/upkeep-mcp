@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A portfolio run with `seo_audit` enabled was roughly four times slower than
+  the pacing it advertises. The per-host limiter woke one waiter per freed slot,
+  from the front of the queue — and because a page's whole link list is
+  dispatched at once, the front of the queue is almost always another request to
+  a host that is already busy. The wake-up was spent on a waiter that could not
+  move, and the slot idled until something else finished. It now wakes every
+  waiter and lets the same admission check decide, which changes no limit: still
+  one request in flight per host, half a second apart, five across all hosts.
+  Twenty sites with every check but accessibility went from 6.5 minutes to
+  1 minute; the offline reproduction went from 3.7x the ideal wall clock to 1.0x.
+
 ### Changed
 
 - The documented Cloud Run deployment moves to a European region, pins the

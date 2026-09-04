@@ -166,6 +166,45 @@ describe('createHostLimiter', () => {
     expect(time.read()).toBe(500);
   });
 
+  it('gives a freed slot to a waiter that can use it, not to the front of the queue', async () => {
+    // Callers queue in bulk — a page's whole link list goes to the limiter at
+    // once — so the front of the queue is usually another request to a host
+    // that is already busy. Waking only that one spends the wake-up on a waiter
+    // which cannot move, and the freed slot idles until something else finishes.
+    const limiter = createHostLimiter({
+      minIntervalMs: 0,
+      maxConcurrentPerHost: 1,
+      maxConcurrentTotal: 2,
+    });
+
+    let openGate = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+
+    let thirdHostRan = false;
+
+    // Holds one of the two slots for as long as the gate stays shut.
+    const holdingASlot = limiter.run('a.example', () => gate);
+    // Queued behind it, on the same host: cannot use a slot freed by anyone.
+    const stuckBehindIt = limiter.run('a.example', () => Promise.resolve());
+    // Takes the second slot and gives it straight back.
+    const givesTheSlotBack = limiter.run('b.example', () => Promise.resolve());
+    // Queued last, on an idle host: the only waiter the freed slot fits.
+    const wantsTheFreedSlot = limiter.run('c.example', () => {
+      thirdHostRan = true;
+      return Promise.resolve();
+    });
+
+    await givesTheSlotBack;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(thirdHostRan).toBe(true);
+
+    openGate();
+    await Promise.all([holdingASlot, stuckBehindIt, wantsTheFreedSlot]);
+  });
+
   it('keeps two pools independent, which is why browsers get their own', async () => {
     // An audit holds its slot for seconds. Sharing one pool with the request
     // limiter meant a handful of audits starved every other check, while pacing

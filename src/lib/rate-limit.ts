@@ -108,11 +108,30 @@ export function createHostLimiter(options: HostLimiterOptions): HostLimiter {
     }
   }
 
+  /**
+   * Wakes everyone waiting, rather than the one at the front of the queue.
+   *
+   * A freed slot is not usable by every waiter: the one at the front may be
+   * queued behind another request to its own host, and waking only it spends
+   * the wake-up on a waiter that goes straight back to the queue while the slot
+   * it could not use sits idle until some other task happens to finish. Callers
+   * queue in bulk — `seo_audit` dispatches a page's whole link list at once —
+   * so most of the queue is ineligible at any moment, and one-at-a-time waking
+   * collapsed a portfolio run to roughly a quarter of its throughput.
+   *
+   * Waking all of them is safe because the re-check is the same loop that
+   * queued them: whoever cannot proceed goes back to waiting, and JavaScript's
+   * single thread means the slot is claimed before the next waiter looks.
+   */
+  function wakeAll(): void {
+    for (const wake of waiting.splice(0)) wake();
+  }
+
   function release(host: string): void {
     const state = stateFor(host);
     state.active -= 1;
     activeTotal -= 1;
-    waiting.shift()?.();
+    wakeAll();
   }
 
   return {
