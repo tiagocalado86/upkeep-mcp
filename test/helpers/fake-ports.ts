@@ -30,12 +30,18 @@ export function emptyDns(): DnsRecords {
     ns: [],
     mx: [],
     txt: [],
+    dmarcTxt: [],
     caa: [],
   };
 }
 
 /**
  * A domain that resolves normally.
+ *
+ * Publishes SPF and DMARC, because a domain that does not is a domain with
+ * findings, and a fixture named "healthy" that produces findings makes every
+ * test using it assert around them. Cases about email authentication override
+ * `txt` and `dmarcTxt` explicitly.
  *
  * @param overrides Fields to change.
  * @returns Records for a healthy domain.
@@ -47,6 +53,8 @@ export function healthyDns(overrides: Partial<DnsRecords> = {}): DnsRecords {
     wwwResolves: true,
     a: ['192.0.2.1'],
     ns: ['ns1.example.net', 'ns2.example.net'],
+    txt: ['v=spf1 include:_spf.example.net -all'],
+    dmarcTxt: ['v=DMARC1; p=reject; rua=mailto:dmarc@example.com'],
     ...overrides,
   };
 }

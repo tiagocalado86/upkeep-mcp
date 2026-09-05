@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`domain_check` reads SPF and DMARC.** Email authentication is the recurring
+  complaint of anyone maintaining client sites — "the contact form's mail goes
+  to spam" — and until now the tool returned the TXT records that answer it
+  without interpreting them. It now reports what each record says: which servers
+  SPF authorises and what it tells receivers about the rest, whether DMARC
+  exists, whether it enforces or only watches, and where its reports go.
+
+  It costs one extra DNS query. DMARC lives at `_dmarc.<domain>`, which rides in
+  the same parallel batch under the same deadline as the other eight, so the
+  ninth question adds no wall-clock. SPF was already in the TXT set.
+
+  The severity split is deliberate. An **absent** record is `info`: it is a
+  standing improvement, and `portfolio_report` ranks a whole portfolio by
+  severity, so grading every client without DMARC as a warning would bury the
+  certificate expiring on Friday. A record that is **present and wrong** is a
+  `warning`, because it fails now — two SPF records make receivers skip SPF
+  entirely, and `+all` is worse than publishing nothing at all.
+
+  The SPF lookup count is reported as a lower bound and only warned on once it
+  already exceeds the limit of ten that receivers enforce. Counting the true
+  total means following `include:` into other people's zones; a bound that is
+  provably over is worth reporting, and a guess is not.
+
+  **DKIM is deliberately absent.** A DKIM key lives at `<selector>._domainkey`
+  and a selector cannot be discovered, only guessed one query at a time — which
+  is subdomain enumeration, ruled out by principle 3. A domain with no DKIM and
+  one whose selector was not guessed stay indistinguishable rather than the
+  second being reported as the first.
+
+  Verified against live DNS as well as fixtures: `github.com` counts 8 lookups
+  without counting its many `ip4:` terms, and `example.com` is correctly flagged
+  for publishing a DMARC policy with no `rua` address.
+
 ### Changed
 
 - **The MCP registry listing is published by the release workflow.** It was the

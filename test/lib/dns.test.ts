@@ -36,8 +36,10 @@ afterEach(async () => {
 });
 
 /** Answers each query type with whatever the test supplies. */
-function resolver(answers: Partial<Record<keyof DnsResolver, unknown>> = {}): DnsResolver {
-  const answer = <T>(key: keyof DnsResolver, fallback: T): Promise<T> => {
+function resolver(
+  answers: Partial<Record<keyof DnsResolver | 'resolveTxtDmarc', unknown>> = {},
+): DnsResolver {
+  const answer = <T>(key: keyof DnsResolver | 'resolveTxtDmarc', fallback: T): Promise<T> => {
     const value = answers[key];
     if (value instanceof Error) return Promise.reject(value);
     return Promise.resolve((value as T | undefined) ?? fallback);
@@ -50,7 +52,13 @@ function resolver(answers: Partial<Record<keyof DnsResolver, unknown>> = {}): Dn
     resolve6: () => answer('resolve6', [] as string[]),
     resolveNs: () => answer('resolveNs', [] as string[]),
     resolveMx: () => answer('resolveMx', [] as { exchange: string; priority: number }[]),
-    resolveTxt: () => answer('resolveTxt', [] as string[][]),
+    // DMARC is asked for at its own label, so the two TXT sets must not be the
+    // same answer: a domain publishing SPF at the apex publishes nothing at
+    // `_dmarc` unless it says so.
+    resolveTxt: (hostname) =>
+      hostname.startsWith('_dmarc.')
+        ? answer('resolveTxtDmarc', [] as string[][])
+        : answer('resolveTxt', [] as string[][]),
     resolveCaa: () => answer('resolveCaa', [] as NodeCaaRecord[]),
     cancel: () => undefined,
   };
@@ -89,6 +97,28 @@ describe('resolveRecords', () => {
     );
 
     expect(records.txt).toEqual(['v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GN']);
+  });
+
+  it('asks the _dmarc label for TXT, separately from the apex', async () => {
+    const records = await resolveRecords('example.com', 1000, () =>
+      resolver({
+        resolveTxt: [['v=spf1 -all']],
+        resolveTxtDmarc: [['v=DMARC1; p=reject']],
+      }),
+    );
+
+    expect(records.txt).toEqual(['v=spf1 -all']);
+    expect(records.dmarcTxt).toEqual(['v=DMARC1; p=reject']);
+  });
+
+  it('reports an absent _dmarc label as empty, not as a failure', async () => {
+    // Most domains publish nothing there. ENODATA must read as "none", the way
+    // every other record type does.
+    const records = await resolveRecords('example.com', 1000, () =>
+      resolver({ resolveTxtDmarc: new Error('ENODATA') }),
+    );
+
+    expect(records.dmarcTxt).toEqual([]);
   });
 
   it('sorts mail exchangers by priority, lowest first', async () => {

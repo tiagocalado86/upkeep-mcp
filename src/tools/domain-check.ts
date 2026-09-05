@@ -2,6 +2,7 @@ import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { DOMAIN_EXPIRY_WARNING_DAYS } from '../lib/defaults.js';
 import { parseTarget } from '../lib/domain-name.js';
+import { SPF_LOOKUP_LIMIT, analyseEmailAuth } from '../lib/email-auth.js';
 import { CheckError } from '../lib/errors.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
@@ -11,6 +12,7 @@ import type {
   CheckOutcome,
   DnsRecords,
   DnssecStatus,
+  EmailAuth,
   Finding,
   RdapRegistration,
 } from '../types.js';
@@ -101,6 +103,9 @@ const outputSchema = z.object({
           'Mail exchangers, lowest priority first. An empty exchange is RFC 7505 "null MX".',
         ),
       txt: z.array(z.string()).describe('TXT records, each already joined from its chunks.'),
+      dmarcTxt: z
+        .array(z.string())
+        .describe('TXT records at "_dmarc." plus the domain, where DMARC is published.'),
       caa: z
         .array(
           z.object({
@@ -129,6 +134,56 @@ const outputSchema = z.object({
         .describe('Where the answer came from. No DNSSEC chain is validated by this tool.'),
     })
     .describe('Whether the delegation is signed. This is not a validation of the DNSSEC chain.'),
+
+  email: z
+    .object({
+      spf: z
+        .object({
+          present: z.boolean().describe('Whether any "v=spf1" record is published.'),
+          record: z.string().nullable().describe('The record as published, or null if absent.'),
+          recordCount: z
+            .int()
+            .describe('How many "v=spf1" records exist. More than one makes SPF fail entirely.'),
+          all: z
+            .enum(['fail', 'softfail', 'neutral', 'pass'])
+            .nullable()
+            .describe(
+              'What the "all" mechanism says about unlisted senders: "fail" is -all, "softfail" ' +
+                'is ~all, "neutral" is ?all, "pass" is +all or a bare all. Null when absent.',
+            ),
+          directLookups: z
+            .int()
+            .describe(
+              'Terms in this record that cost a DNS lookup. A lower bound: it does not follow ' +
+                'include: or redirect=, so over the limit proves a broken record and under it ' +
+                'proves nothing.',
+            ),
+        })
+        .describe('SPF: which servers may send mail as this domain.'),
+      dmarc: z
+        .object({
+          present: z.boolean().describe('Whether a "v=DMARC1" record is published.'),
+          record: z.string().nullable().describe('The record as published, or null if absent.'),
+          recordCount: z
+            .int()
+            .describe('How many "v=DMARC1" records exist. More than one is invalid.'),
+          policy: z
+            .enum(['none', 'quarantine', 'reject'])
+            .nullable()
+            .describe(
+              'The "p=" tag: "none" monitors only, "quarantine" sends failures to spam, ' +
+                '"reject" refuses them. Null when the record names no valid policy.',
+            ),
+          reportingAddresses: z
+            .array(z.string())
+            .describe('The "rua=" addresses aggregate reports go to, as published.'),
+        })
+        .describe('DMARC: what receivers should do when authentication does not line up.'),
+    })
+    .describe(
+      "Email authentication, read from the domain's own TXT records. DKIM is not reported: " +
+        'finding a DKIM key needs its selector, which cannot be discovered without guessing.',
+    ),
 });
 
 /**
@@ -183,9 +238,20 @@ async function buildReport(
   const dns = readDns(dnsResult, registrable, findings);
   const dnssec = await readDnssec(rdapResult, registrable, ports);
 
+  const email = analyseEmailAuth(dns.txt, dns.dmarcTxt);
+
   const registrationSeverity = expirySeverity(registration.daysUntilExpiry, warnDays);
   collectRegistrationFindings(registration, registrationSeverity, lookupFailed, findings);
-  if (dnsResolved) collectDnsFindings(dns, findings);
+  if (dnsResolved) {
+    collectDnsFindings(dns, findings);
+    // Two conditions, not one. The empty records standing in for a failed lookup
+    // are indistinguishable from a domain that publishes nothing, so a lookup
+    // that never answered must not be read as "no SPF". Neither must a domain
+    // that answered and resolves to nothing: telling someone their expired
+    // domain also lacks DMARC is true, useless, and in the way of the finding
+    // that matters.
+    if (resolvesAtAll(dns)) collectEmailFindings(email, findings);
+  }
   if (dnssec.delegationSigned === false) {
     findings.push(
       finding(
@@ -207,6 +273,7 @@ async function buildReport(
     dns,
     dnsResolved,
     dnssec,
+    email,
   };
 
   return { ok: true as const, report };
@@ -274,14 +341,20 @@ export function registerDomainCheckTool(
       description: [
         'Reports when a domain registration expires, who the registrar is, and how the domain is',
         'configured in DNS — nameservers, address records, mail exchangers, TXT and CAA records,',
-        'and whether the delegation is signed with DNSSEC.',
+        'whether the delegation is signed with DNSSEC, and what its SPF and DMARC records say',
+        'about who may send email as it.',
         '',
         'Use it to answer "is this domain about to lapse?", "who do we renew this with?", "where',
         'does this domain point?" or "why does the apex not work when www does?". It is the right',
         'first call when a site has gone dark for no obvious reason.',
         '',
+        'Use it too for "why is this client\'s email going to spam?" or "can someone spoof this',
+        'domain?" — SPF and DMARC are read from the domain\'s own DNS.',
+        '',
         'Do not use it to check whether a website responds — that is uptime_check — or to inspect',
         'an SSL certificate, which is ssl_check. It reads only what registries and DNS publish.',
+        'It reports no DKIM: finding a DKIM key needs its selector, and a selector cannot be',
+        'discovered without guessing at names, which this project will not do.',
         '',
         'Registration data comes from RDAP. Some country registries (.de, .nl, .no, .au, .fi)',
         'publish no expiry date at all; the result says so explicitly rather than reporting a gap',
@@ -376,6 +449,7 @@ function readDns(
     ns: [],
     mx: [],
     txt: [],
+    dmarcTxt: [],
     caa: [],
   };
 }
@@ -487,7 +561,7 @@ function collectRegistrationFindings(
  * @throws Never.
  */
 function collectDnsFindings(dns: DnsRecords, findings: Finding[]): void {
-  if (!dns.apexResolves && !dns.wwwResolves && dns.ns.length === 0) {
+  if (!resolvesAtAll(dns)) {
     findings.push(
       finding('domain_does_not_resolve', 'critical', 'The domain does not resolve at all.'),
     );
@@ -499,6 +573,141 @@ function collectDnsFindings(dns: DnsRecords, findings: Finding[]): void {
         'apex_does_not_resolve',
         'warning',
         'The domain itself has no address record; only "www." resolves.',
+      ),
+    );
+  }
+}
+
+/**
+ * Whether the domain exists in the DNS in any form.
+ *
+ * Nameservers count even with no address record: a domain delegated but not yet
+ * pointed anywhere is a configuration state, not an absence.
+ *
+ * @param dns The records, from a lookup that actually answered.
+ * @returns Whether anything at all is published for this domain.
+ * @throws Never.
+ */
+function resolvesAtAll(dns: DnsRecords): boolean {
+  return dns.apexResolves || dns.wwwResolves || dns.ns.length > 0;
+}
+
+/**
+ * Appends findings about email authentication.
+ *
+ * The severity split is deliberate and narrower than it first looks. A record
+ * that is **absent** is informational: it is a standing improvement, not
+ * something that broke this week, and `portfolio_report` ranks a whole
+ * portfolio by severity — grading every unconfigured client as a warning would
+ * bury the certificate that expires on Friday. A record that is **present and
+ * wrong** is a warning, because it fails right now: two SPF records make
+ * receivers skip SPF altogether, and `+all` is worse than publishing nothing.
+ *
+ * @param email The parsed policies.
+ * @param findings Collector, appended to in place.
+ * @throws Never.
+ */
+function collectEmailFindings(email: EmailAuth, findings: Finding[]): void {
+  const { spf, dmarc } = email;
+
+  if (!spf.present) {
+    findings.push(
+      finding(
+        'spf_not_published',
+        'info',
+        'There is no SPF record, so nothing states which servers may send email as this domain.',
+      ),
+    );
+  } else {
+    if (spf.recordCount > 1) {
+      findings.push(
+        finding(
+          'spf_multiple_records',
+          'warning',
+          `There are ${String(spf.recordCount)} SPF records. Receivers treat more than one as an ` +
+            'error and skip SPF entirely, so none of them applies.',
+        ),
+      );
+    }
+    if (spf.all === 'pass') {
+      findings.push(
+        finding(
+          'spf_allows_any_sender',
+          'warning',
+          'The SPF record ends in "+all", which authorises every server on the internet to send ' +
+            'email as this domain.',
+        ),
+      );
+    }
+    if (spf.all === 'neutral' || spf.all === null) {
+      findings.push(
+        finding(
+          'spf_no_policy_for_unlisted',
+          'info',
+          'The SPF record says nothing about senders it does not list, so each receiver decides ' +
+            'for itself.',
+        ),
+      );
+    }
+    if (spf.directLookups > SPF_LOOKUP_LIMIT) {
+      findings.push(
+        finding(
+          'spf_too_many_lookups',
+          'warning',
+          `The SPF record needs at least ${String(spf.directLookups)} DNS lookups, above the ` +
+            `limit of ${String(SPF_LOOKUP_LIMIT)} receivers enforce, so it fails before it is read.`,
+        ),
+      );
+    }
+  }
+
+  if (!dmarc.present) {
+    findings.push(
+      finding(
+        'dmarc_not_published',
+        'info',
+        'There is no DMARC record, so each receiver decides for itself what to do with email ' +
+          'that fails authentication as this domain.',
+      ),
+    );
+    return;
+  }
+
+  if (dmarc.recordCount > 1) {
+    findings.push(
+      finding(
+        'dmarc_multiple_records',
+        'warning',
+        `There are ${String(dmarc.recordCount)} DMARC records. More than one is invalid and ` +
+          'receivers ignore all of them.',
+      ),
+    );
+  }
+  if (dmarc.policy === null) {
+    findings.push(
+      finding(
+        'dmarc_policy_invalid',
+        'warning',
+        'The DMARC record names no valid policy, which receivers treat as if it were not ' +
+          'published at all.',
+      ),
+    );
+  }
+  if (dmarc.policy === 'none') {
+    findings.push(
+      finding(
+        'dmarc_not_enforcing',
+        'info',
+        'DMARC is set to "none", which watches without asking receivers to act on failures.',
+      ),
+    );
+  }
+  if (dmarc.reportingAddresses.length === 0) {
+    findings.push(
+      finding(
+        'dmarc_no_reporting_address',
+        'info',
+        'DMARC publishes no "rua" address, so no reports arrive to show whether it is working.',
       ),
     );
   }
@@ -517,6 +726,7 @@ function summarise(report: {
   dns: DnsRecords;
   dnsResolved: boolean;
   dnssec: DnssecStatus;
+  email: EmailAuth;
   findings: Finding[];
 }): string {
   const lines: string[] = [];
@@ -540,6 +750,8 @@ function summarise(report: {
       : `Resolves: not established, the DNS lookup failed. DNSSEC: ${describeDnssec(dnssec)}.`,
   );
 
+  if (report.dnsResolved) lines.push(`Email: ${describeEmail(report.email)}.`);
+
   if (report.findings.length > 0) {
     lines.push('', 'Needs attention:');
     for (const item of report.findings) lines.push(`- [${item.severity}] ${item.message}`);
@@ -557,6 +769,28 @@ function describeDnssec(dnssec: DnssecStatus): string {
   if (dnssec.delegationSigned === null) return 'not established';
   return dnssec.delegationSigned ? 'delegation signed' : 'not signed';
 }
+
+/**
+ * @param email The parsed policies.
+ * @returns A phrase naming what each record says, e.g. "SPF -all, DMARC p=reject".
+ * @throws Never.
+ */
+function describeEmail(email: EmailAuth): string {
+  const spf = email.spf.present ? `SPF ${SPF_ALL_NOTATION[email.spf.all ?? 'absent']}` : 'no SPF';
+  const dmarc = email.dmarc.present
+    ? `DMARC ${email.dmarc.policy === null ? 'invalid' : `p=${email.dmarc.policy}`}`
+    : 'no DMARC';
+  return `${spf}, ${dmarc}`;
+}
+
+/** The notation an SPF record is written in, which is how an administrator will recognise it. */
+const SPF_ALL_NOTATION: Record<'fail' | 'softfail' | 'neutral' | 'pass' | 'absent', string> = {
+  fail: '-all',
+  softfail: '~all',
+  neutral: '?all',
+  pass: '+all',
+  absent: 'with no "all"',
+};
 
 /**
  * @param text Any sentence fragment.

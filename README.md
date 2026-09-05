@@ -73,7 +73,21 @@ belongs to.
 
 Returns the expiry date and days remaining, the registrar and its IANA ID,
 registry statuses, A/AAAA/NS/MX/TXT/CAA records, whether the apex and `www`
-resolve, and whether the delegation is signed with DNSSEC.
+resolve, whether the delegation is signed with DNSSEC, and what the domain's SPF
+and DMARC records say about who may send email as it.
+
+Email authentication is read from the domain's own DNS — the SPF record at the
+apex, the DMARC record at `_dmarc`. A record that is **absent** is reported as
+information, because it is a standing improvement rather than something that
+broke this week. A record that is **present and wrong** is a warning, because it
+fails right now: two SPF records make receivers skip SPF entirely, and `+all`
+authorises the whole internet to send as the domain.
+
+DKIM is deliberately not reported. A DKIM key lives at `<selector>._domainkey`,
+and a selector cannot be discovered — only guessed, one DNS query per guess.
+That is subdomain enumeration, which this project does not do, so a domain with
+no DKIM and one whose selector was not guessed are left indistinguishable rather
+than the second being reported as the first.
 
 ### `ssl_check`
 

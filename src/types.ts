@@ -160,8 +160,80 @@ export interface DnsRecords {
   mx: MxRecord[];
   /** TXT records, each already joined from its 255-byte chunks. */
   txt: string[];
+  /**
+   * TXT records at `_dmarc.<domain>`, where a DMARC policy is published.
+   *
+   * A separate field rather than a merged one: DMARC lives at its own label, and
+   * folding it into `txt` would report the domain as publishing a record it does
+   * not.
+   */
+  dmarcTxt: string[];
   /** CAA records. */
   caa: CaaRecord[];
+}
+
+/**
+ * What a domain's SPF record says.
+ *
+ * SPF names the servers allowed to send mail as this domain. Absent, anyone may;
+ * present but permissive, the same, stated explicitly.
+ */
+export interface SpfPolicy {
+  /** Whether any `v=spf1` record is published. */
+  present: boolean;
+  /** The record as published, or null when there is none. */
+  record: string | null;
+  /**
+   * How many `v=spf1` records exist. More than one is invalid — RFC 7208 §4.5
+   * makes a receiver seeing two return `permerror`, so SPF stops working
+   * entirely rather than one of the two winning.
+   */
+  recordCount: number;
+  /**
+   * What the `all` mechanism tells receivers to do with senders the record does
+   * not list: `fail` is `-all`, `softfail` is `~all`, `neutral` is `?all` and
+   * `pass` is `+all` — or a bare `all`, whose default qualifier is `+`. Null
+   * when the record names no `all` at all.
+   */
+  all: 'fail' | 'softfail' | 'neutral' | 'pass' | null;
+  /**
+   * Terms in this record that each cost a DNS lookup.
+   *
+   * A **lower bound**, not the count a receiver computes: the real total
+   * includes everything reached through `include:` and `redirect=`, and
+   * following those means resolving other people's zones. Over the limit here
+   * is therefore proof of a broken record; under it proves nothing.
+   */
+  directLookups: number;
+}
+
+/**
+ * What a domain's DMARC record says.
+ *
+ * DMARC tells receivers what to do when SPF and DKIM do not line up, and where
+ * to report it. Without it, a receiver decides for itself.
+ */
+export interface DmarcPolicy {
+  /** Whether a `v=DMARC1` record is published at `_dmarc.<domain>`. */
+  present: boolean;
+  /** The record as published, or null when there is none. */
+  record: string | null;
+  /** How many `v=DMARC1` records exist. More than one is invalid. */
+  recordCount: number;
+  /**
+   * The `p=` tag: `none` monitors without acting, `quarantine` sends failures to
+   * spam, `reject` refuses them. Null when the record names no valid policy,
+   * which receivers treat as if it were not published.
+   */
+  policy: 'none' | 'quarantine' | 'reject' | null;
+  /** The `rua=` addresses aggregate reports are sent to, as published. */
+  reportingAddresses: string[];
+}
+
+/** A domain's email authentication, as its own DNS states it. */
+export interface EmailAuth {
+  spf: SpfPolicy;
+  dmarc: DmarcPolicy;
 }
 
 /**

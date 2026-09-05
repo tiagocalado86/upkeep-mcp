@@ -44,6 +44,8 @@ export interface DnsResolver {
  * Resolves every record a maintenance check cares about, for a domain and its
  * `www` sibling.
  *
+ * Also asks `_dmarc.<domain>` for TXT, which is where a DMARC policy lives.
+ *
  * Uses `dns.resolve*`, never `dns.lookup`: `lookup` is `getaddrinfo(3)`, so it
  * consults `/etc/hosts`, search domains and the OS cache, and collapses every
  * failure into `ENOTFOUND`. That makes it useless for answering "does this
@@ -75,9 +77,14 @@ export async function resolveRecords(
     optional(() => resolver.resolveCaa(domain)),
     optional(() => resolver.resolve4(`www.${domain}`)),
     optional(() => resolver.resolve6(`www.${domain}`)),
+    // DMARC is published at its own label, so it cannot come from the TXT set
+    // above. It rides in the same batch rather than in a query of its own: these
+    // run in parallel against one resolver under one deadline, so the ninth
+    // question costs no more wall-clock than the eighth.
+    optional(() => resolver.resolveTxt(`_dmarc.${domain}`)),
   ]);
 
-  const [a, aaaa, ns, mx, txt, caa, wwwA, wwwAaaa] = await withDeadline(
+  const [a, aaaa, ns, mx, txt, caa, wwwA, wwwAaaa, dmarcTxt] = await withDeadline(
     work,
     resolver,
     timeoutMs,
@@ -100,6 +107,7 @@ export async function resolveRecords(
     // with nothing between them: joining with a space silently corrupts long
     // values such as a DKIM public key.
     txt: txt.map((chunks) => chunks.join('')),
+    dmarcTxt: dmarcTxt.map((chunks) => chunks.join('')),
     caa: caa.map(toCaaRecord),
   };
 }
@@ -107,7 +115,7 @@ export async function resolveRecords(
 /**
  * Resolves just the addresses a hostname points at.
  *
- * Separate from {@link resolveRecords}, which asks eight questions: this asks
+ * Separate from {@link resolveRecords}, which asks nine questions: this asks
  * the two that decide whether a host may be contacted at all, and is on the
  * path of every request a public deployment makes.
  *
