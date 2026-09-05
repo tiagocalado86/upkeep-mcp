@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local one does, which is the point: nobody should get a weaker check because
   they cannot run the server themselves.
 
+  The fallback is composed in `ports.ts`, alongside the DS lookup, rather than
+  inside `resolveRecords`. That function races every query against a single
+  deadline, so a third party inside the race can spend the whole budget and
+  reject a lookup whose other five record sets had already arrived — and
+  `domain_check` reads a rejected lookup as `domain_does_not_resolve`, critical.
+  A slow endpoint would have promoted a healthy site to the top of a portfolio
+  report. Composed outside it, the fallback runs only after the lookup has
+  succeeded, cannot fail it, and is paced by the same per-host limiter as every
+  other third-party call — without which a twenty-site run would have opened
+  twenty unpaced requests at one endpoint, and a throttled answer reads as `[]`,
+  which is the silent absence this entry is about.
+
 ## [0.3.3] - 2026-09-05
 
 ### Fixed

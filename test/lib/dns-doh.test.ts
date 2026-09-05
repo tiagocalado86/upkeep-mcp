@@ -1,7 +1,6 @@
 import { MockAgent, setGlobalDispatcher, type Dispatcher, getGlobalDispatcher } from 'undici';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CaaRecord as NodeCaaRecord } from 'node:dns';
-import { hasDsRecord, resolveRecords, type DnsResolver } from '../../src/lib/dns.js';
+import { hasDsRecord, resolveCaaOverDoh } from '../../src/lib/dns.js';
 
 let agent: MockAgent;
 let original: Dispatcher;
@@ -73,29 +72,10 @@ describe('hasDsRecord', () => {
   });
 });
 
-/**
- * A resolver that answers addresses and nothing else, so a CAA answer is the
- * only thing under test.
- *
- * @param caa What `resolveCaa` should answer with. Empty is the Cloud Run case.
- */
-function resolverWithCaa(caa: NodeCaaRecord[]): DnsResolver {
-  return {
-    resolve4: () => Promise.resolve(['203.0.113.10']),
-    resolve6: () => Promise.resolve([]),
-    resolveNs: () => Promise.resolve([]),
-    resolveMx: () => Promise.resolve([]),
-    resolveTxt: () => Promise.resolve([]),
-    resolveCaa: () => Promise.resolve(caa),
-    cancel: () => undefined,
-  };
-}
-
-describe("CAA, when the platform's resolver will not answer for it", () => {
-  it('asks DNS-over-HTTPS and parses the presentation form', async () => {
-    // Cloud Run answers A, AAAA, NS, MX and TXT and returns nothing for CAA,
-    // which is indistinguishable from a domain that publishes none. Reported
-    // as an absence, it says a client is unprotected against mis-issuance.
+describe('resolveCaaOverDoh', () => {
+  it('parses the presentation form the endpoint answers in', async () => {
+    // DNS-over-HTTPS returns `0 issue "digicert.com"`, not the object node:dns
+    // builds, so the tag has to become a property name again.
     replyWith({
       Status: 0,
       Answer: [
@@ -104,9 +84,7 @@ describe("CAA, when the platform's resolver will not answer for it", () => {
       ],
     });
 
-    const records = await resolveRecords('github.com', 1000, () => resolverWithCaa([]));
-
-    expect(records.caa).toEqual([
+    await expect(resolveCaaOverDoh('github.com', 1000)).resolves.toEqual([
       { critical: 0, issue: 'digicert.com' },
       { critical: 0, issuewild: 'letsencrypt.org' },
     ]);
@@ -115,35 +93,15 @@ describe("CAA, when the platform's resolver will not answer for it", () => {
   it('keeps the critical flag rather than assuming it is zero', async () => {
     replyWith({ Status: 0, Answer: [{ type: 257, data: '128 iodef "mailto:sec@example.com"' }] });
 
-    const records = await resolveRecords('example.com', 1000, () => resolverWithCaa([]));
-
-    expect(records.caa).toEqual([{ critical: 128, iodef: 'mailto:sec@example.com' }]);
+    await expect(resolveCaaOverDoh('example.com', 1000)).resolves.toEqual([
+      { critical: 128, iodef: 'mailto:sec@example.com' },
+    ]);
   });
 
-  it('does not ask when the resolver already answered', async () => {
-    let asked = 0;
-    agent
-      .get('https://cloudflare-dns.com')
-      .intercept({ path: (path) => path.startsWith('/dns-query'), method: 'GET' })
-      .reply(200, () => {
-        asked += 1;
-        return { Status: 0, Answer: [] };
-      });
-
-    const records = await resolveRecords('example.com', 1000, () =>
-      resolverWithCaa([{ critical: 0, issue: 'letsencrypt.org' }]),
-    );
-
-    expect(records.caa).toEqual([{ critical: 0, issue: 'letsencrypt.org' }]);
-    expect(asked).toBe(0);
-  });
-
-  it('reports no CAA when neither source has one', async () => {
+  it('is empty for a domain that genuinely publishes none', async () => {
     replyWith({ Status: 0, Answer: [] });
 
-    const records = await resolveRecords('example.com', 1000, () => resolverWithCaa([]));
-
-    expect(records.caa).toEqual([]);
+    await expect(resolveCaaOverDoh('example.com', 1000)).resolves.toEqual([]);
   });
 
   it('ignores an answer it cannot represent rather than inventing a record', async () => {
@@ -159,16 +117,14 @@ describe("CAA, when the platform's resolver will not answer for it", () => {
       ],
     });
 
-    const records = await resolveRecords('example.com', 1000, () => resolverWithCaa([]));
-
-    expect(records.caa).toEqual([{ critical: 0, issue: 'sectigo.com' }]);
+    await expect(resolveCaaOverDoh('example.com', 1000)).resolves.toEqual([
+      { critical: 0, issue: 'sectigo.com' },
+    ]);
   });
 
-  it('reports no CAA when the endpoint itself fails', async () => {
+  it('is empty when the endpoint itself fails', async () => {
     replyWith('gateway timeout', 504);
 
-    const records = await resolveRecords('example.com', 1000, () => resolverWithCaa([]));
-
-    expect(records.caa).toEqual([]);
+    await expect(resolveCaaOverDoh('example.com', 1000)).resolves.toEqual([]);
   });
 });

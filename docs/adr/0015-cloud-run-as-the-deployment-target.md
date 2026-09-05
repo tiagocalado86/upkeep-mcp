@@ -68,9 +68,16 @@ Google Cloud Run, from the existing `Dockerfile`, in a European region.
   answers most of what this project asks it. **Most, not all: measured on the
   deployed instance, it does not answer record type 257.** A, AAAA, NS, MX and
   TXT come back correct; CAA comes back empty for `google.com` and `github.com`,
-  both of which demonstrably publish it. `dns.ts` therefore asks
+  both of which demonstrably publish it. `ports.ts` therefore asks
   DNS-over-HTTPS for CAA whenever the resolver returns none, so the hosted
-  instance answers the same question the local one does. `docs/deploying.md`
+  instance answers the same question the local one does. It is composed there
+  and not inside `resolveRecords` because that function races every query
+  against one deadline: a slow third party inside the race would spend the whole
+  budget and reject the lookup, which `domain_check` reports as
+  `domain_does_not_resolve`, critical, for a healthy domain. Composed outside
+  it, the fallback runs only after the lookup has succeeded, is paced by the
+  same per-host limiter as every other third-party call, and cannot fail
+  anything. `docs/deploying.md`
   carries the warning where someone will meet it, and it still applies with full
   force to any future authoritative lookup.
 - Cold start is around half a second for a container of this shape, of which
@@ -120,7 +127,7 @@ every client as unprotected against mis-issuance, in the shape of a clean answer
 What could not be established is _how_ the resolver declines: NOTIMP, SERVFAIL
 and an empty NOERROR are indistinguishable from outside a deployed instance.
 The fallback in `dns.ts` is therefore keyed on an empty answer rather than on an
-error code — see `resolveCaaRecords` for what that costs.
+error code — see `resolveCaaOverDoh` for what that costs.
 
 The general lesson stands and is worth restating: a platform's DNS behaviour is
 not a single fact, and "the resolver works" is not a finding. Ask it for each

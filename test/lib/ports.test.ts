@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { MockAgent, setGlobalDispatcher, type Dispatcher, getGlobalDispatcher } from 'undici';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { CaaRecord as NodeCaaRecord } from 'node:dns';
+import type { DnsResolver } from '../../src/lib/dns.js';
 import { CheckError } from '../../src/lib/errors.js';
-import { createDefaultPorts, foundAnything, rethrowForRemoteCaller } from '../../src/lib/ports.js';
+import {
+  createDefaultPorts,
+  foundAnything,
+  resolveRecordsWithCaa,
+  rethrowForRemoteCaller,
+} from '../../src/lib/ports.js';
 import { emptyDns, healthyDns } from '../helpers/fake-ports.js';
 
 describe('foundAnything', () => {
@@ -103,5 +111,111 @@ describe('rethrowForRemoteCaller', () => {
     expect(() => {
       rethrowForRemoteCaller(odd);
     }).toThrow(odd);
+  });
+});
+
+describe('resolveRecordsWithCaa', () => {
+  let agent: MockAgent;
+  let original: Dispatcher;
+
+  beforeEach(() => {
+    original = getGlobalDispatcher();
+    agent = new MockAgent();
+    agent.disableNetConnect();
+    setGlobalDispatcher(agent);
+  });
+
+  afterEach(async () => {
+    setGlobalDispatcher(original);
+    await agent.close();
+  });
+
+  /** @param body What the DNS-over-HTTPS endpoint should answer with. */
+  function replyWith(body: string | object, status = 200): void {
+    agent
+      .get('https://cloudflare-dns.com')
+      .intercept({ path: (path) => path.startsWith('/dns-query'), method: 'GET' })
+      .reply(status, body);
+  }
+
+  /** A resolver that answers addresses, and whatever CAA the case needs. */
+  function resolverWithCaa(caa: NodeCaaRecord[]): () => DnsResolver {
+    return () => ({
+      resolve4: () => Promise.resolve(['203.0.113.10']),
+      resolve6: () => Promise.resolve([]),
+      resolveNs: () => Promise.resolve(['ns1.example.net']),
+      resolveMx: () => Promise.resolve([]),
+      resolveTxt: () => Promise.resolve([]),
+      resolveCaa: () => Promise.resolve(caa),
+      cancel: () => undefined,
+    });
+  }
+
+  /** A limiter that records what it was asked to pace, and runs it. */
+  function recordingLimiter(): {
+    hosts: string[];
+    run: <T>(h: string, w: () => Promise<T>) => Promise<T>;
+  } {
+    const hosts: string[] = [];
+    return {
+      hosts,
+      run: <T>(host: string, work: () => Promise<T>): Promise<T> => {
+        hosts.push(host);
+        return work();
+      },
+    };
+  }
+
+  it('asks the endpoint when the platform resolver returned no CAA', async () => {
+    replyWith({ Status: 0, Answer: [{ type: 257, data: '0 issue "pki.goog"' }] });
+    const limiter = recordingLimiter();
+
+    const records = await resolveRecordsWithCaa('google.com', limiter, resolverWithCaa([]));
+
+    expect(records.caa).toEqual([{ critical: 0, issue: 'pki.goog' }]);
+  });
+
+  it('paces the fallback through the limiter, keyed on the host it contacts', async () => {
+    // Twenty sites in a portfolio_report would otherwise open twenty unpaced
+    // requests to one endpoint, and a throttled answer reads as `[]` — the
+    // silent absence this fallback exists to remove, reintroduced under load.
+    replyWith({ Status: 0, Answer: [] });
+    const limiter = recordingLimiter();
+
+    await resolveRecordsWithCaa('example.com', limiter, resolverWithCaa([]));
+
+    expect(limiter.hosts).toEqual(['cloudflare-dns.com']);
+  });
+
+  it('does not ask when the resolver already answered', async () => {
+    // No interceptor is registered and net connect is disabled, so a request
+    // here would be a failure rather than a silent extra round trip.
+    const limiter = recordingLimiter();
+
+    const records = await resolveRecordsWithCaa(
+      'example.com',
+      limiter,
+      resolverWithCaa([{ critical: 0, issue: 'letsencrypt.org' }]),
+    );
+
+    expect(records.caa).toEqual([{ critical: 0, issue: 'letsencrypt.org' }]);
+    expect(limiter.hosts).toEqual([]);
+  });
+
+  it('never lets a failing endpoint turn a healthy domain into a failed lookup', async () => {
+    // The reason this composition lives here and not inside resolveRecords:
+    // there the fallback sat inside the deadline every query is raced against,
+    // so a slow third party rejected the whole lookup — which domain_check
+    // reports as `domain_does_not_resolve`, critical, for a healthy site whose
+    // other five record sets had already arrived.
+    replyWith('gateway timeout', 504);
+    const limiter = recordingLimiter();
+
+    const records = await resolveRecordsWithCaa('example.com', limiter, resolverWithCaa([]));
+
+    expect(records.caa).toEqual([]);
+    expect(records.a).toEqual(['203.0.113.10']);
+    expect(records.ns).toEqual(['ns1.example.net']);
+    expect(records.apexResolves).toBe(true);
   });
 });

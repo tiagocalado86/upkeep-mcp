@@ -135,11 +135,13 @@ Whoever adds it: verify against a deployed instance, not locally.
 
 **The platform resolver already declines one record type: CAA.** Measured on the
 first deployed instance — A, AAAA, NS, MX and TXT all correct, CAA empty for two
-domains that publish it. So `dns.ts` asks DNS-over-HTTPS for CAA whenever the
+domains that publish it. So `ports.ts` asks DNS-over-HTTPS for CAA whenever the
 resolver returns none, and a hosted instance answers what a local one does. The
 cost is one extra request for a domain that genuinely has no CAA, which is most
 of them; a domain that has one is answered locally and never reaches the
-fallback.
+fallback. It is paced by the same per-host limiter as every other third-party
+call, and it runs after the record lookup rather than inside it, so a slow
+endpoint costs a CAA answer and never the whole domain check.
 
 ### The first thing to check once it is live
 

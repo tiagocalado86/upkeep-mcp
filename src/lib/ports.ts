@@ -5,7 +5,13 @@ import { CheckError } from './errors.js';
 import { runAxe, type AxeRun } from './axe.js';
 import { createTtlCache } from './cache.js';
 import { LIMITS, TTL } from './defaults.js';
-import { hasDsRecord, resolveAddresses, resolveRecords } from './dns.js';
+import {
+  hasDsRecord,
+  resolveAddresses,
+  resolveCaaOverDoh,
+  resolveRecords,
+  type DnsResolver,
+} from './dns.js';
 import { getText, httpHop, type HttpHopResult, type TextResult } from './http-client.js';
 import {
   allowAnyTarget,
@@ -168,6 +174,53 @@ export function foundAnything(records: DnsRecords): boolean {
   );
 }
 
+/**
+ * Resolves a domain's records, asking DNS-over-HTTPS for CAA when the platform's
+ * own resolver returned none.
+ *
+ * The two are composed here rather than inside `resolveRecords` for the same
+ * reason `hasDsRecord` is a separate call: `resolveRecords` races every query
+ * against one deadline, so a slow third party inside it can spend the whole
+ * budget and reject a lookup whose other five record sets had already arrived.
+ * `domain_check` reads that rejection as `domain_does_not_resolve`, critical —
+ * a healthy site at the top of a portfolio report because Cloudflare was slow.
+ *
+ * Here the fallback runs only after the lookup has already succeeded, cannot
+ * fail it, and goes through the same per-host limiter as every other
+ * third-party call. Without that pacing, a twenty-site `portfolio_report` would
+ * open twenty unpaced requests to one endpoint, and a throttled response reads
+ * as `[]` — the very silent absence the fallback exists to remove.
+ *
+ * @param domain Hostname in A-label form.
+ * @param limiter The per-host limiter, so this is paced like every other
+ *   third-party call.
+ * @returns The records, with CAA filled in from the fallback when the resolver
+ *   returned none.
+ * Exported for its own test: the pacing and the "cannot fail the lookup"
+ * guarantee are the whole point of it, and neither is observable through
+ * {@link createDefaultPorts}, which builds a real resolver.
+ *
+ * @param domain Hostname in A-label form.
+ * @param limiter The per-host limiter, so this is paced like every other
+ *   third-party call.
+ * @param createResolver Builds the resolver. Injected for tests only.
+ * @returns The records, with CAA filled in from the fallback when the resolver
+ *   returned none.
+ * @throws {CheckError} Whatever `resolveRecords` throws. The fallback itself
+ *   never throws, so it cannot turn a healthy domain into a failed lookup.
+ */
+export async function resolveRecordsWithCaa(
+  domain: string,
+  limiter: ReturnType<typeof createHostLimiter>,
+  createResolver?: () => DnsResolver,
+): Promise<DnsRecords> {
+  const records = await resolveRecords(domain, undefined, createResolver);
+  if (records.caa.length > 0) return records;
+
+  const caa = await limiter.run('cloudflare-dns.com', () => resolveCaaOverDoh(domain));
+  return { ...records, caa };
+}
+
 /** How a set of ports treats the targets it is asked about. */
 export interface PortOptions {
   /**
@@ -276,11 +329,10 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
 
   return {
     dns: {
-      // Not rate limited: these go to the system resolver, not to a third party.
       resolveRecords: (domain) =>
         dnsCache.fetch(
           domain,
-          () => resolveRecords(domain),
+          () => resolveRecordsWithCaa(domain, limiter),
           (records) => (foundAnything(records) ? TTL.dnsMs : TTL.dnsNegativeMs),
         ),
       hasDsRecord: (domain) =>

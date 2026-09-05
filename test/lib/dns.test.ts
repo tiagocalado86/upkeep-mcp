@@ -4,22 +4,29 @@ import type { CaaRecord as NodeCaaRecord } from 'node:dns';
 import { resolveRecords, type DnsResolver } from '../../src/lib/dns.js';
 import { CheckError } from '../../src/lib/errors.js';
 
-// A resolver that returns no CAA now sends the question to DNS-over-HTTPS, so
-// every case in this file has an outbound request behind it. Net connect is
-// disabled rather than merely intercepted: a test that reaches the real
-// internet is a test that passes on a laptop and fails in CI.
+// `resolveRecords` races every query against one deadline, so nothing inside it
+// may talk to a third party: a slow one would spend the whole budget and reject
+// a lookup whose other record sets had already arrived. The CAA fallback lives
+// in `ports.ts` for that reason. Net connect is disabled here to keep it that
+// way, and `asks nothing of the network` below is what actually catches a
+// regression — a reintroduced fallback would swallow its own failure and pass.
 let agent: MockAgent;
 let original: Dispatcher;
+let outbound: number;
 
 beforeEach(() => {
   original = getGlobalDispatcher();
   agent = new MockAgent();
   agent.disableNetConnect();
   setGlobalDispatcher(agent);
+  outbound = 0;
   agent
     .get('https://cloudflare-dns.com')
     .intercept({ path: (path) => path.startsWith('/dns-query'), method: 'GET' })
-    .reply(200, { Status: 0, Answer: [] })
+    .reply(200, () => {
+      outbound += 1;
+      return { Status: 0, Answer: [] };
+    })
     .persist();
 });
 
@@ -63,6 +70,17 @@ function byHost(answers: Record<string, string[]>): DnsResolver {
 }
 
 describe('resolveRecords', () => {
+  it('asks nothing of the network, whatever the resolver answers', async () => {
+    // A domain with no CAA is the common case, and it is the one that used to
+    // trigger an outbound request from inside the deadline. Composing the
+    // fallback in `ports.ts` is what keeps a slow endpoint from being reported
+    // as `domain_does_not_resolve`.
+    const records = await resolveRecords('example.com', 1000, () => resolver());
+
+    expect(records.caa).toEqual([]);
+    expect(outbound).toBe(0);
+  });
+
   it('joins the chunks of a TXT record with nothing between them', async () => {
     // A DKIM public key arrives in 255-byte chunks. Joining them with a space
     // silently corrupts the key, and the corruption is invisible in a report.

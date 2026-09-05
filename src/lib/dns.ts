@@ -10,7 +10,7 @@ import { getJson } from './http-client.js';
  *
  * Used for two things. DS records, because `node:dns` cannot query DS, DNSKEY
  * or RRSIG at all and exposes no AD flag. And CAA records, but only as a
- * fallback — see {@link resolveCaaRecords} for the platform that needs it.
+ * fallback — see {@link resolveCaaOverDoh} for the platform that needs it.
  */
 const DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
 
@@ -72,7 +72,7 @@ export async function resolveRecords(
     optional(() => resolver.resolveNs(domain)),
     optional(() => resolver.resolveMx(domain)),
     optional(() => resolver.resolveTxt(domain)),
-    resolveCaaRecords(domain, timeoutMs, resolver),
+    optional(() => resolver.resolveCaa(domain)),
     optional(() => resolver.resolve4(`www.${domain}`)),
     optional(() => resolver.resolve6(`www.${domain}`)),
   ]);
@@ -100,7 +100,7 @@ export async function resolveRecords(
     // with nothing between them: joining with a space silently corrupts long
     // values such as a DKIM public key.
     txt: txt.map((chunks) => chunks.join('')),
-    caa,
+    caa: caa.map(toCaaRecord),
   };
 }
 
@@ -185,48 +185,37 @@ export async function hasDsRecord(
 }
 
 /**
- * Resolves a domain's CAA records, falling back to DNS-over-HTTPS when the
- * platform's own resolver will not answer for them.
- *
- * Cloud Run's resolver does not answer record type 257. A, AAAA, NS, MX and TXT
- * all come back correctly there, and CAA comes back empty for domains that
- * demonstrably publish it. Left to {@link optional}, that failure becomes `[]` —
- * the same answer a domain genuinely publishing no CAA gives — so a hosted
- * instance quietly reports every client as unprotected against mis-issuance.
- *
- * The fallback is keyed on an empty result rather than on an error code,
- * because the code cannot be observed from here: whether that resolver answers
- * NOTIMP, SERVFAIL or an empty NOERROR is undocumented and invisible through a
- * deployed instance. An empty answer is the one symptom common to every case.
- * It costs one extra request for a domain that truly has no CAA; a domain that
- * has one is answered locally and never reaches this path.
- *
- * @param domain Hostname in A-label form.
- * @param timeoutMs Deadline for the fallback query.
- * @param resolver The resolver to ask first.
- * @returns Every CAA record, or `[]` when there are none to be found.
- * @throws Never — no domain check is worth failing over a CAA answer.
- */
-async function resolveCaaRecords(
-  domain: string,
-  timeoutMs: number,
-  resolver: DnsResolver,
-): Promise<CaaRecord[]> {
-  const local = await optional(() => resolver.resolveCaa(domain));
-  if (local.length > 0) return local.map(toCaaRecord);
-
-  return await caaOverDoh(domain, timeoutMs);
-}
-
-/**
  * Asks the DNS-over-HTTPS endpoint for a domain's CAA records.
+ *
+ * A fallback, not the primary path. Cloud Run's resolver does not answer record
+ * type 257: A, AAAA, NS, MX and TXT come back correct there, and CAA comes back
+ * empty for domains that demonstrably publish it. {@link optional} turns that
+ * failure into `[]` — the same answer a domain publishing no CAA gives — so an
+ * instance hosted there reports every client as unprotected against
+ * mis-issuance, in the shape of a clean result.
+ *
+ * It is deliberately **not** called from {@link resolveRecords}. That function
+ * races every query against one deadline, and a third party inside that race
+ * can spend the whole budget and reject the lookup — which `domain_check` reads
+ * as `domain_does_not_resolve`, critical, for a domain whose other five record
+ * sets had already come back. `src/lib/ports.ts` composes the two instead,
+ * where the call is also rate limited and cached like every other third party.
+ *
+ * The caller decides when to ask, on an empty answer rather than on an error
+ * code: whether Cloud Run's resolver says NOTIMP, SERVFAIL or an empty NOERROR
+ * cannot be observed from outside a deployed instance, and an empty answer is
+ * the one symptom common to every case.
  *
  * @param domain Hostname in A-label form.
  * @param timeoutMs Deadline for the query.
- * @returns Every CAA record the endpoint returns, or `[]` on any failure.
+ * @returns Every CAA record the endpoint returns, or `[]` on any failure — an
+ *   unreachable endpoint is never worth failing a domain check over.
  * @throws Never.
  */
-async function caaOverDoh(domain: string, timeoutMs: number): Promise<CaaRecord[]> {
+export async function resolveCaaOverDoh(
+  domain: string,
+  timeoutMs: number = TIMEOUTS.dnsMs,
+): Promise<CaaRecord[]> {
   try {
     const url = `${DOH_ENDPOINT}?name=${encodeURIComponent(domain)}&type=CAA`;
     // Cloudflare returns HTTP 400 without this Accept header.
@@ -377,7 +366,7 @@ function normaliseHostname(hostname: string): string {
  */
 function toCaaRecord(record: NodeCaaRecord): CaaRecord {
   const result: CaaRecord = { critical: record.critical };
-  for (const tag of ['issue', 'issuewild', 'iodef', 'contactemail', 'contactphone'] as const) {
+  for (const tag of CAA_TAGS) {
     const value = record[tag];
     // Assigned conditionally rather than spread, because `exactOptionalPropertyTypes`
     // distinguishes an absent property from one explicitly set to undefined.
