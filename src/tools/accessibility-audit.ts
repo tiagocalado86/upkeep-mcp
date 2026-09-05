@@ -2,12 +2,11 @@ import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AxeRun, AxeViolation } from '../lib/axe.js';
 import { SERVER_NAME } from '../lib/constants.js';
-import { CheckError } from '../lib/errors.js';
 import { createDefaultPorts, type Ports } from '../lib/ports.js';
 import { isAllowed } from '../lib/robots.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
-import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
+import { buildFailure, fail, failureFrom, guard, headlineOf, succeed } from '../lib/tool-result.js';
 import { normaliseUrl } from '../lib/url.js';
 import type { CheckOutcome, Finding, Severity } from '../types.js';
 
@@ -120,7 +119,18 @@ async function buildReport(input: Input, ports: Ports) {
 
   // The same rule as every other page the project reads: robots.txt first, and
   // a browser is still a crawler.
-  const robots = await ports.robots.forOrigin(target.origin);
+  //
+  // Wrapped, because this is the first outbound call and on a public instance it
+  // is the one the target guard refuses. Unwrapped, a refusal escaped a function
+  // whose contract says it never throws, and the outer guard reported it as
+  // `unexpected` — which reads as a fault in the server rather than as an answer
+  // about what was asked for.
+  let robots: Awaited<ReturnType<typeof ports.robots.forOrigin>>;
+  try {
+    robots = await ports.robots.forOrigin(target.origin);
+  } catch (cause) {
+    return failureFrom(cause);
+  }
   const mayCrawl =
     robots.availability !== 'unreachable' &&
     isAllowed(robots.robots, SERVER_NAME, `${target.pathname}${target.search}`);
@@ -147,13 +157,7 @@ async function buildReport(input: Input, ports: Ports) {
   try {
     run = await ports.browser.audit(target.toString(), STANDARDS[standard]);
   } catch (cause) {
-    // The category comes from the error, never from reading its message: a
-    // timeout, a refused target and a missing browser are three different
-    // answers, and re-deriving them from prose means rewording a sentence
-    // silently changes what callers are told.
-    return cause instanceof CheckError
-      ? buildFailure(cause.code, cause.message)
-      : buildFailure('network', cause instanceof Error ? cause.message : String(cause));
+    return failureFrom(cause);
   }
 
   const findings = sortFindings(collectFindings(run, standard));

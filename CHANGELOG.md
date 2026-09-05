@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-05
+
 ### Added
 
 - **The hosted instance runs `accessibility_audit`.** The published image ships
@@ -29,6 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [ADR 0016](docs/adr/0016-a-browser-in-the-published-image.md) records the
   reversal, the measured cost — over 18,000 audits a month inside the free tier
   — and what would reopen it.
+
+### Fixed
+
+- `seo_audit` and `accessibility_audit` reported a refused target as
+  `unexpected`, which tells a caller the server broke when what happened is that
+  they asked for an address it will not contact. Both fetch `robots.txt` before
+  anything else, and on a public instance that is where the target guard
+  refuses; the refusal escaped a function whose contract says it never throws,
+  so the outer wrapper never saw its category. The message was right and the
+  code was wrong — and the code is what a client branches on. Found by calling
+  the deployed instance rather than by any test.
 
 ## [0.3.5] - 2026-09-05
 
@@ -395,7 +408,8 @@ true })` refuses any host resolving outside public unicast space — loopback,
   this release needs sits on that boundary. See
   `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.1...v0.3.3

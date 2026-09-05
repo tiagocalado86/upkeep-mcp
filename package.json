@@ -1,6 +1,6 @@
 {
   "name": "upkeep-mcp",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "description": "MCP server for ongoing website maintenance checks: domains, SSL, uptime, technical SEO and accessibility — from public information only.",
   "mcpName": "io.github.tiagocalado86/upkeep-mcp",
   "keywords": [

@@ -12,7 +12,7 @@ import {
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
 import { readSitemap, type SitemapReading } from '../lib/sitemap.js';
-import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
+import { buildFailure, fail, failureFrom, guard, headlineOf, succeed } from '../lib/tool-result.js';
 import { normaliseUrl } from '../lib/url.js';
 import { SERVER_NAME } from '../lib/constants.js';
 import type { CheckOutcome, Finding, Severity } from '../types.js';
@@ -227,7 +227,16 @@ async function buildReport(input: Input, ports: Ports) {
 
   const now = ports.now();
   const origin = target.origin;
-  const robotsFetch = await ports.robots.forOrigin(origin);
+  // Wrapped for the same reason as in accessibility-audit: this is the first
+  // outbound call, so on a public instance it is where the target guard refuses,
+  // and a refusal escaping here was reported as `unexpected` rather than as the
+  // `invalid_input` it is.
+  let robotsFetch: Awaited<ReturnType<typeof ports.robots.forOrigin>>;
+  try {
+    robotsFetch = await ports.robots.forOrigin(origin);
+  } catch (cause) {
+    return failureFrom(cause);
+  }
   const group = selectGroup(robotsFetch.robots, SERVER_NAME);
   const mayCrawl =
     robotsFetch.availability !== 'unreachable' &&

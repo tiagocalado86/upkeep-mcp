@@ -3,7 +3,7 @@
   "name": "io.github.tiagocalado86/upkeep-mcp",
   "description": "Website maintenance checks: domains, SSL, uptime, technical SEO and accessibility",
   "title": "upkeep-mcp",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "websiteUrl": "https://github.com/tiagocalado86/upkeep-mcp#readme",
   "repository": {
     "url": "https://github.com/tiagocalado86/upkeep-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "upkeep-mcp",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       }

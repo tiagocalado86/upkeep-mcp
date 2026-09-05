@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CheckError } from '../../src/lib/errors.js';
 import { runSeoAudit } from '../../src/tools/seo-audit.js';
 import { fakePorts, findingCodes, structured, text } from '../helpers/fake-ports.js';
 
@@ -28,6 +29,20 @@ function healthyHtml(body = '<h1>Welcome</h1>'): string {
 }
 
 describe('runSeoAudit', () => {
+  it('reports a target the guard refused as invalid_input, not as a server fault', async () => {
+    // Same shape as accessibility_audit: robots.txt is the first outbound call,
+    // so a public instance refuses there, and the category has to survive.
+    const refused = new CheckError(
+      'invalid_input',
+      'this server only contacts the public internet, and 10.0.0.5 is not on it (private range)',
+    );
+
+    const result = await runSeoAudit({ url: 'http://10.0.0.5/' }, fakePorts({ robots: refused }));
+
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/^invalid_input: /);
+  });
+
   it('reports a healthy page with nothing to act on', async () => {
     const result = await runSeoAudit(
       { url: PAGE_URL },

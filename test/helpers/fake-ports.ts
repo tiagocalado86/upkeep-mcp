@@ -137,9 +137,10 @@ export interface FakeOptions {
   /**
    * A `robots.txt` body, as if served with a 200. The two literals `'absent'`
    * and `'unreachable'` stand for a host that publishes none and one that
-   * cannot be asked at all.
+   * cannot be asked at all. An `Error` stands for a fetch that never happened —
+   * a target the guard refused, which is what a public instance does first.
    */
-  robots?: string;
+  robots?: string | Error;
   /** Local files the run may read, keyed by the path a caller would pass. */
   files?: Record<string, string>;
   /** What a browser audit returns, or an Error for a browser that will not start. */
@@ -215,7 +216,10 @@ export function fakePorts(options: FakeOptions = {}): Ports {
       },
     },
     robots: {
-      forOrigin: (origin) => Promise.resolve(fakeRobots(origin, options.robots)),
+      forOrigin: (origin) =>
+        options.robots instanceof Error
+          ? Promise.reject(options.robots)
+          : Promise.resolve(fakeRobots(origin, options.robots)),
     },
     browser: {
       audit: () =>

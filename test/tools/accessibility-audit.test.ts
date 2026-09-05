@@ -21,6 +21,28 @@ function violation(overrides: Partial<AxeViolation> = {}): AxeViolation {
 }
 
 describe('runAccessibilityAudit', () => {
+  it('reports a target the guard refused as invalid_input, not as a server fault', async () => {
+    // robots.txt is the first outbound call, so on a public instance it is where
+    // the guard refuses. The refusal used to escape a function whose contract
+    // says it never throws, and the outer wrapper reported it as `unexpected` —
+    // which tells a caller the server broke, when what happened is that they
+    // asked for something the server will not contact. The category is what a
+    // client branches on; the message alone is not enough.
+    const refused = new CheckError(
+      'invalid_input',
+      'this server only contacts the public internet, and 127.0.0.1 is not on it (loopback)',
+    );
+
+    const result = await runAccessibilityAudit(
+      { url: 'http://127.0.0.1:8080' },
+      fakePorts({ robots: refused }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/^invalid_input: /);
+    expect(text(result)).toContain('not on it (loopback)');
+  });
+
   it('reports a page that fails nothing, without calling it accessible', async () => {
     const result = await runAccessibilityAudit(
       { url: PAGE },

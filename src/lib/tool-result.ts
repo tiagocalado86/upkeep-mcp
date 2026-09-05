@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { ToolError, ToolErrorCode } from '../types.js';
+import { CheckError } from './errors.js';
 
 /**
  * Builds a successful tool result carrying both halves of the contract: text
@@ -61,6 +62,27 @@ export function buildFailure(
   message: string,
 ): { ok: false; error: ToolError } {
   return { ok: false, error: { code, message } };
+}
+
+/**
+ * Turns a thrown failure into the result shape, keeping its category.
+ *
+ * The category comes from the error and never from reading its message: a
+ * timeout, a refused target and an unreachable host are three different answers
+ * to the caller, and re-deriving them from prose means rewording a sentence
+ * silently changes what a client is told.
+ *
+ * Anything that is not a {@link CheckError} is `network`, which is what an
+ * unclassified failure from an outbound call actually was.
+ *
+ * @param cause Whatever was thrown.
+ * @returns The failure, with the code the error carried.
+ * @throws Never.
+ */
+export function failureFrom(cause: unknown): { ok: false; error: ToolError } {
+  return cause instanceof CheckError
+    ? buildFailure(cause.code, cause.message)
+    : buildFailure('network', cause instanceof Error ? cause.message : String(cause));
 }
 
 /**
