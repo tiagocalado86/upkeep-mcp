@@ -63,11 +63,16 @@ Google Cloud Run, from the existing `Dockerfile`, in a European region.
 - **Fly.io is the fallback**, at roughly $24/year rather than nothing. It builds
   this `Dockerfile` unchanged and documents outbound UDP more clearly than
   anyone else.
-- **Outbound UDP to the internet does not leave Cloud Run.** Queries to the
-  platform resolver work, which is all `dns.ts` does today because it never
-  calls `setServers`. Adding authoritative lookups would break on this platform
-  and `optional()` would report the breakage as "no such record".
-  `docs/deploying.md` carries the warning where someone will meet it.
+- **Outbound UDP to the internet does not leave Cloud Run**, and the platform
+  resolver — which is all `dns.ts` uses, because it never calls `setServers` —
+  answers most of what this project asks it. **Most, not all: measured on the
+  deployed instance, it does not answer record type 257.** A, AAAA, NS, MX and
+  TXT come back correct; CAA comes back empty for `google.com` and `github.com`,
+  both of which demonstrably publish it. `dns.ts` therefore asks
+  DNS-over-HTTPS for CAA whenever the resolver returns none, so the hosted
+  instance answers the same question the local one does. `docs/deploying.md`
+  carries the warning where someone will meet it, and it still applies with full
+  force to any future authoritative lookup.
 - Cold start is around half a second for a container of this shape, of which
   roughly 350ms is platform floor. Nothing in `src/lib/` opens anything at
   import time and `ports.ts` builds its caches lazily; that is worth keeping,
@@ -97,10 +102,26 @@ Google Cloud Run, from the existing `Dockerfile`, in a European region.
   which changes the size, the cost and the attack surface all at once
   ([`0013`](0013-playwright-core-and-an-optional-browser.md)).
 
-## What has not been verified
+## What the field test found
 
-No provider documents outbound UDP behaviour cleanly, and none of the evidence
-above is a field test — it is primary documentation, vendor source, and one
-platform's staff answering a forum. The first deployed instance should call
-`domain_check` and confirm that A, AAAA, NS, MX, TXT and CAA all come back
-populated for a domain known to publish them, before this ADR is trusted.
+The check this section used to ask for has been run, against the first deployed
+instance, on 2026-09-05 — and it failed, which is why it was worth asking for.
+
+A, AAAA, NS, MX and TXT came back populated. **CAA came back empty**, for both
+`google.com` (`0 issue "pki.goog"`) and `github.com` (seven records). Running
+`resolveRecords` on a laptop returned the record, so neither the query nor the
+mapping was at fault: the platform resolver does not answer for type 257.
+
+The failure mode is the one this ADR predicted for a different cause. `optional()`
+turns any failed query into an empty result, and an empty CAA set is exactly what
+a domain publishing no CAA looks like — so the hosted instance was reporting
+every client as unprotected against mis-issuance, in the shape of a clean answer.
+
+What could not be established is _how_ the resolver declines: NOTIMP, SERVFAIL
+and an empty NOERROR are indistinguishable from outside a deployed instance.
+The fallback in `dns.ts` is therefore keyed on an empty answer rather than on an
+error code — see `resolveCaaRecords` for what that costs.
+
+The general lesson stands and is worth restating: a platform's DNS behaviour is
+not a single fact, and "the resolver works" is not a finding. Ask it for each
+record type the project depends on.

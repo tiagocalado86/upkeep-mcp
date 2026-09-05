@@ -1,7 +1,32 @@
-import { describe, expect, it, vi } from 'vitest';
+import { MockAgent, setGlobalDispatcher, type Dispatcher, getGlobalDispatcher } from 'undici';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CaaRecord as NodeCaaRecord } from 'node:dns';
 import { resolveRecords, type DnsResolver } from '../../src/lib/dns.js';
 import { CheckError } from '../../src/lib/errors.js';
+
+// A resolver that returns no CAA now sends the question to DNS-over-HTTPS, so
+// every case in this file has an outbound request behind it. Net connect is
+// disabled rather than merely intercepted: a test that reaches the real
+// internet is a test that passes on a laptop and fails in CI.
+let agent: MockAgent;
+let original: Dispatcher;
+
+beforeEach(() => {
+  original = getGlobalDispatcher();
+  agent = new MockAgent();
+  agent.disableNetConnect();
+  setGlobalDispatcher(agent);
+  agent
+    .get('https://cloudflare-dns.com')
+    .intercept({ path: (path) => path.startsWith('/dns-query'), method: 'GET' })
+    .reply(200, { Status: 0, Answer: [] })
+    .persist();
+});
+
+afterEach(async () => {
+  setGlobalDispatcher(original);
+  await agent.close();
+});
 
 /** Answers each query type with whatever the test supplies. */
 function resolver(answers: Partial<Record<keyof DnsResolver, unknown>> = {}): DnsResolver {

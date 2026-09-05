@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `domain_check` reported that a domain publishes no CAA record when what had
+  actually happened is that it could not find out. On Cloud Run the platform
+  resolver answers A, AAAA, NS, MX and TXT and declines record type 257, and
+  `optional()` turns any failed query into an empty result — so the hosted
+  instance described `google.com` and `github.com`, which publish CAA, as
+  publishing none. An empty CAA set is how a domain with no certificate-issuance
+  restriction looks, so the failure arrived in the shape of a clean answer.
+  CAA is now asked over DNS-over-HTTPS whenever the resolver returns none, using
+  the endpoint already there for DS records. A hosted instance answers what a
+  local one does, which is the point: nobody should get a weaker check because
+  they cannot run the server themselves.
+
 ## [0.3.3] - 2026-09-05
 
 ### Fixed

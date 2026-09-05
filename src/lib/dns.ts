@@ -8,13 +8,17 @@ import { getJson } from './http-client.js';
 /**
  * Cloudflare's DNS-over-HTTPS JSON endpoint.
  *
- * Used for one thing only — asking whether a DS record exists — because
- * `node:dns` cannot query DS, DNSKEY or RRSIG at all and exposes no AD flag.
+ * Used for two things. DS records, because `node:dns` cannot query DS, DNSKEY
+ * or RRSIG at all and exposes no AD flag. And CAA records, but only as a
+ * fallback — see {@link resolveCaaRecords} for the platform that needs it.
  */
 const DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
 
 /** DS is record type 43. */
 const RRTYPE_DS = 43;
+
+/** CAA is record type 257. */
+const RRTYPE_CAA = 257;
 
 /**
  * The part of `node:dns`'s `Resolver` this module uses.
@@ -68,7 +72,7 @@ export async function resolveRecords(
     optional(() => resolver.resolveNs(domain)),
     optional(() => resolver.resolveMx(domain)),
     optional(() => resolver.resolveTxt(domain)),
-    optional(() => resolver.resolveCaa(domain)),
+    resolveCaaRecords(domain, timeoutMs, resolver),
     optional(() => resolver.resolve4(`www.${domain}`)),
     optional(() => resolver.resolve6(`www.${domain}`)),
   ]);
@@ -96,7 +100,7 @@ export async function resolveRecords(
     // with nothing between them: joining with a space silently corrupts long
     // values such as a DKIM public key.
     txt: txt.map((chunks) => chunks.join('')),
-    caa: caa.map(toCaaRecord),
+    caa,
   };
 }
 
@@ -178,6 +182,107 @@ export async function hasDsRecord(
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolves a domain's CAA records, falling back to DNS-over-HTTPS when the
+ * platform's own resolver will not answer for them.
+ *
+ * Cloud Run's resolver does not answer record type 257. A, AAAA, NS, MX and TXT
+ * all come back correctly there, and CAA comes back empty for domains that
+ * demonstrably publish it. Left to {@link optional}, that failure becomes `[]` —
+ * the same answer a domain genuinely publishing no CAA gives — so a hosted
+ * instance quietly reports every client as unprotected against mis-issuance.
+ *
+ * The fallback is keyed on an empty result rather than on an error code,
+ * because the code cannot be observed from here: whether that resolver answers
+ * NOTIMP, SERVFAIL or an empty NOERROR is undocumented and invisible through a
+ * deployed instance. An empty answer is the one symptom common to every case.
+ * It costs one extra request for a domain that truly has no CAA; a domain that
+ * has one is answered locally and never reaches this path.
+ *
+ * @param domain Hostname in A-label form.
+ * @param timeoutMs Deadline for the fallback query.
+ * @param resolver The resolver to ask first.
+ * @returns Every CAA record, or `[]` when there are none to be found.
+ * @throws Never — no domain check is worth failing over a CAA answer.
+ */
+async function resolveCaaRecords(
+  domain: string,
+  timeoutMs: number,
+  resolver: DnsResolver,
+): Promise<CaaRecord[]> {
+  const local = await optional(() => resolver.resolveCaa(domain));
+  if (local.length > 0) return local.map(toCaaRecord);
+
+  return await caaOverDoh(domain, timeoutMs);
+}
+
+/**
+ * Asks the DNS-over-HTTPS endpoint for a domain's CAA records.
+ *
+ * @param domain Hostname in A-label form.
+ * @param timeoutMs Deadline for the query.
+ * @returns Every CAA record the endpoint returns, or `[]` on any failure.
+ * @throws Never.
+ */
+async function caaOverDoh(domain: string, timeoutMs: number): Promise<CaaRecord[]> {
+  try {
+    const url = `${DOH_ENDPOINT}?name=${encodeURIComponent(domain)}&type=CAA`;
+    // Cloudflare returns HTTP 400 without this Accept header.
+    const { status, body } = await getJson(url, timeoutMs, 'application/dns-json');
+    if (status !== 200 || typeof body !== 'object' || body === null) return [];
+
+    const payload = body as { Status?: unknown; Answer?: unknown };
+    if (payload.Status !== 0 || !Array.isArray(payload.Answer)) return [];
+
+    const records: CaaRecord[] = [];
+    for (const entry of payload.Answer) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const { type, data } = entry as { type?: unknown; data?: unknown };
+      if (type !== RRTYPE_CAA || typeof data !== 'string') continue;
+
+      const record = parseCaaRecord(data);
+      if (record !== null) records.push(record);
+    }
+    return records;
+  } catch {
+    return [];
+  }
+}
+
+/** `<flags> <tag> "<value>"` — the presentation form a CAA record is written in. */
+const CAA_PRESENTATION = /^\s*(\d{1,3})\s+([a-zA-Z]+)\s+"([^"]*)"\s*$/;
+
+/** The tags this project models. A record carrying any other is not one it can represent. */
+const CAA_TAGS = ['issue', 'issuewild', 'iodef', 'contactemail', 'contactphone'] as const;
+
+/**
+ * Parses one CAA record from its presentation form.
+ *
+ * DNS-over-HTTPS answers with `0 issue "letsencrypt.org"` rather than the object
+ * `node:dns` builds, so the tag has to become a property name again — see
+ * {@link CaaRecord} for why the tag is the property name and not a field.
+ *
+ * @param data One `Answer` entry's `data` field.
+ * @returns The record, or `null` when it is malformed or carries a tag this
+ *   project does not model.
+ * @throws Never.
+ */
+function parseCaaRecord(data: string): CaaRecord | null {
+  const match = CAA_PRESENTATION.exec(data);
+  if (match === null) return null;
+
+  const [, flags, tag, value] = match;
+  if (flags === undefined || tag === undefined || value === undefined) return null;
+
+  const lowered = tag.toLowerCase();
+  const known = CAA_TAGS.find((candidate) => candidate === lowered);
+  if (known === undefined) return null;
+
+  const record: CaaRecord = { critical: Number(flags) };
+  record[known] = value;
+  return record;
 }
 
 /**

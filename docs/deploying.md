@@ -133,10 +133,18 @@ no MX and no NS.
 
 Whoever adds it: verify against a deployed instance, not locally.
 
+**The platform resolver already declines one record type: CAA.** Measured on the
+first deployed instance — A, AAAA, NS, MX and TXT all correct, CAA empty for two
+domains that publish it. So `dns.ts` asks DNS-over-HTTPS for CAA whenever the
+resolver returns none, and a hosted instance answers what a local one does. The
+cost is one extra request for a domain that genuinely has no CAA, which is most
+of them; a domain that has one is answered locally and never reaches the
+fallback.
+
 ### The first thing to check once it is live
 
-No provider documents outbound UDP behaviour clearly, so the paragraph above is
-reasoning, not a measurement. Point a client at the new instance and call
+No provider documents outbound UDP behaviour clearly, so run the check rather
+than trusting the reasoning. Point a client at the new instance and call
 `domain_check` on a domain known to publish a full set of records:
 
 ```json
@@ -146,6 +154,10 @@ reasoning, not a measurement. Point a client at the new instance and call
 A, AAAA, NS, MX, TXT and CAA should all come back populated. Empty sets there
 mean DNS is failing on the platform and `optional()` is describing the failure
 as an absence — which looks like a clean result and is not one.
+
+This is not hypothetical: run on the first deployment, it caught exactly that,
+for CAA. Compare against the same call on a machine with an ordinary resolver;
+a difference between the two is the finding.
 
 ### What only you can do
 
