@@ -28,7 +28,9 @@ read without spending a tool call) and the `quarterly_report` prompt (turns a
 portfolio run into the report a client actually reads).
 
 Published on npm, so it installs with one command — see
-[Installation](#installation).
+[Installation](#installation). A public instance is also running, for anyone who
+would rather point a client at a URL than run anything — see
+[The hosted instance](#the-hosted-instance).
 
 ## What it looks like
 
@@ -223,22 +225,46 @@ npm run build
 claude mcp add upkeep -- node /absolute/path/to/upkeep-mcp/dist/index.js
 ```
 
-### Over HTTP
+### The hosted instance
 
-The server also speaks the Streamable HTTP transport, for a public demo
-instance:
+For anyone who cannot or would rather not run a server, there is a public one:
+
+```
+https://upkeep-mcp-1080119881249.europe-west1.run.app/mcp
+```
+
+Point any MCP client that takes a remote server URL at it — in Claude, as a
+custom connector. Opening the host in a browser gives a plain page saying what
+it is.
+
+**It is a demo.** No authentication, no availability promise, no support, and it
+may be switched off without notice. `npx -y upkeep-mcp` is the supported way to
+run this, and it is what you want if these checks matter to your work.
+
+Every check gives the same answer it gives locally, deliberately: someone who
+cannot run the server themselves should not get a weaker tool. Two things
+genuinely differ, and both are properties of running in public rather than
+compromises:
+
+- **It contacts only public addresses, and only the web ports** — 443, or 80
+  when checking whether plain HTTP upgrades. So it refuses to check anything on
+  your own network, `localhost` included. Use the stdio server for those.
+- **`accessibility_audit` does not run there**, because the image ships no
+  browser on purpose. It says so rather than failing obscurely, and every other
+  check works.
+
+### Running your own over HTTP
+
+The transport is the same one the hosted instance uses:
 
 ```bash
 npm run build
 npm run start:http -- --port 8080
 ```
 
-Point an MCP client at `/mcp` on that host. The HTTP entrypoint is not the stdio
-one with a socket attached: a stranger is not the person who started the
-process, so it contacts **only public addresses, and only the web ports — 443,
-or 80 when checking whether plain HTTP upgrades** — and admits
-traffic through a per-caller rate limit. That means it will refuse to check
-anything on your own network — use the stdio server for that.
+The HTTP entrypoint is not the stdio one with a socket attached: a stranger is
+not the person who started the process, so it applies the address and port rules
+above and admits traffic through a per-caller rate limit.
 [`docs/deploying.md`](docs/deploying.md) covers running it on Google Cloud Run,
 and [`docs/adr/0012`](docs/adr/0012-public-target-guard.md) explains the guard
 and what it does not close.

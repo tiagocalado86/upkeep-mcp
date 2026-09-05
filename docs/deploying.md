@@ -174,7 +174,10 @@ a difference between the two is the finding.
   `/.env` writes a line. People have been billed an order of magnitude more for
   logging than for compute.
 - Decide whether the URL goes in the README. A demo that has quietly stopped
-  paying its own bill is worse than no demo.
+  paying its own bill is worse than no demo, so the budget alert and the logs
+  exclusion above come first. Both are in place for the instance in the README,
+  which is worded as a URL that may be switched off, with `npx -y upkeep-mcp`
+  named as the supported path.
 
 ## The demo cannot run `accessibility_audit`
 

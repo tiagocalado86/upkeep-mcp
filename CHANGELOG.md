@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The README now names the hosted instance, and says what it is: a demo that may
+  be switched off, with `npx -y upkeep-mcp` as the supported way to run this. The
+  section it lives in is rewritten to separate pointing a client at that URL from
+  running an HTTP instance yourself, and to state plainly that a hosted caller
+  gets the same answers a local one does — except `accessibility_audit`, which
+  needs a browser the image deliberately does not ship.
+
 ### Fixed
 
 - `domain_check` reported that a domain publishes no CAA record when what had
