@@ -241,17 +241,16 @@ it is.
 may be switched off without notice. `npx -y upkeep-mcp` is the supported way to
 run this, and it is what you want if these checks matter to your work.
 
-Every check gives the same answer it gives locally, deliberately: someone who
-cannot run the server themselves should not get a weaker tool. Two things
-genuinely differ, and both are properties of running in public rather than
-compromises:
+**Every tool works there, `accessibility_audit` included** — the image ships a
+browser, and every request that browser makes goes through the same rules as the
+rest of the server. Someone who cannot run a server themselves should not get a
+weaker tool than someone who can.
 
-- **It contacts only public addresses, and only the web ports** — 443, or 80
-  when checking whether plain HTTP upgrades. So it refuses to check anything on
-  your own network, `localhost` included. Use the stdio server for those.
-- **`accessibility_audit` does not run there**, because the image ships no
-  browser on purpose. It says so rather than failing obscurely, and every other
-  check works.
+One thing genuinely differs, and it is a property of running in public rather
+than a compromise: **it contacts only public addresses, and only the web
+ports** — 443, or 80 when checking whether plain HTTP upgrades. So it refuses to
+check anything on your own network, `localhost` included. Use the stdio server
+for those.
 
 ### Running your own over HTTP
 

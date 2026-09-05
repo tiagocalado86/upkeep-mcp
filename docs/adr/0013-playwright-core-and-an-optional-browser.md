@@ -31,8 +31,12 @@ single command that fixes it. Every other tool keeps working.
 - In `portfolio_report`, a machine without a browser turns an `accessibility`
   check into a check that could not run, so the site reports `unknown` — never a
   clean result it did not earn.
-- **The published container ships no browser**, which means the public demo
-  cannot run this tool. That is deliberate twice over: the image stays small,
+- ~~**The published container ships no browser**, which means the public demo
+  cannot run this tool.~~ **Reversed on 2026-09-05 by
+  [`0016`](0016-a-browser-in-the-published-image.md)**, once the guard gap below
+  was closed and the owner set the rule that a hosted instance must do
+  everything a local one does. The reasoning as it stood: deliberate twice over,
+  the image stays small,
   and a headless browser loading arbitrary pages on a stranger's request is a
   far larger surface than the target guard in ADR 0012 covers, since the browser
   fetches whatever a page embeds and that is not checked.

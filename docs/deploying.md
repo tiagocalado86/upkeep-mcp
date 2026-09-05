@@ -74,10 +74,10 @@ and give it a couple of minutes to propagate.
 gcloud run deploy upkeep-mcp \
   --source . \
   --region europe-west1 \
-  --execution-environment gen1 \
+  --execution-environment gen2 \
   --allow-unauthenticated \
   --port 8080 \
-  --memory 512Mi \
+  --memory 1Gi \
   --max-instances 2 \
   --concurrency 20 \
   --timeout 300
@@ -181,15 +181,23 @@ a difference between the two is the finding.
   which is worded as a URL that may be switched off, with `npx -y upkeep-mcp`
   named as the supported path.
 
-## The demo cannot run `accessibility_audit`
+## The demo runs `accessibility_audit` too
 
-The image ships no browser, deliberately. It keeps the container small, and a
-headless browser loading arbitrary pages on a stranger's request is a far larger
-surface than the target guard covers — the browser fetches whatever a page
-embeds, and none of that passes through the guard.
+The image ships a browser — the Chromium headless shell, 196 MB, installed with
+`--only-shell`. [`docs/adr/0016`](adr/0016-a-browser-in-the-published-image.md)
+records why that reverses the container half of `0013`, and what it cost.
 
-The tool is still advertised, and answers with the message naming the command
-that installs a browser. Anyone who wants it runs the server locally.
+What made it safe to do is that every request the browser makes now goes through
+the same target policy as the rest of the server (`blockRefused` in
+`src/lib/axe.ts`). Before that, only the page's own URL was checked and the
+browser fetched whatever the page embedded — which was reachable by anyone
+running this entrypoint with a browser installed, not only by a hosted instance.
+
+Two settings in the deploy command exist for the browser: `--memory 1Gi`,
+because Chromium does not fit in 512Mi, and `--execution-environment gen2`,
+because gen1's gVisor is where a browser is most likely to fail. Chromium
+started on gen2 without `--no-sandbox`, so its own sandbox is intact and the
+flag is deliberately absent.
 
 ## What this is not
 

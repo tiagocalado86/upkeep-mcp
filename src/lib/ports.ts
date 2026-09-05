@@ -280,11 +280,14 @@ async function assertReachable(guard: TargetGuard, url: URL): Promise<void> {
  * this machine.
  *
  * `runAxe` names `npx playwright install chromium`, which is the fix on the
- * machine the server runs on. A public instance is somebody else's machine and
- * ships no browser on purpose
- * (`docs/adr/0013-playwright-core-and-an-optional-browser.md`), so that advice
- * is unfollowable there — and it reads as a broken deployment rather than as a
- * documented limit of the hosted instance.
+ * machine the server runs on. A public instance is somebody else's machine, so
+ * that advice is unfollowable there whatever the cause.
+ *
+ * What the cause is has changed. The published image now ships a browser
+ * (`docs/adr/0016-a-browser-in-the-published-image.md`), so meeting this on a
+ * hosted instance means that deployment is broken, not that the check is
+ * unavailable there by design — and the message says so, because "run the
+ * server yourself" as a permanent answer would now be wrong.
  *
  * Exported for its own test: the hosted instance is the one configuration this
  * project cannot exercise offline, since the machine running the suite has a
@@ -299,9 +302,10 @@ export function rethrowForRemoteCaller(cause: unknown): never {
   if (cause instanceof CheckError && cause.code === 'not_found') {
     throw new CheckError(
       'not_found',
-      'this server runs no browser, so accessibility_audit cannot run here; every other check can. ' +
-        'To audit a page, run the server on your own machine: `npx -y upkeep-mcp`, then ' +
-        '`npx playwright install chromium` once',
+      'this deployment could not start a browser, so accessibility_audit cannot run here at the ' +
+        'moment; every other check can. The published image ships one, so this is a fault in this ' +
+        'instance rather than a limit of the tool. To audit a page meanwhile, run the server ' +
+        'yourself: `npx -y upkeep-mcp`, then `npx playwright install chromium` once',
       { cause },
     );
   }

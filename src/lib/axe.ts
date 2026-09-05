@@ -219,8 +219,10 @@ export interface RoutableContext {
  * `<img src="http://169.254.169.254/latest/meta-data/">` makes the server fetch
  * it, and while the response is not handed back, whether it loaded is
  * observable from the page itself. `docs/adr/0013` accepted this on the grounds
- * that the published container ships no browser; the policy is enforced here so
- * that stops being the only thing standing between the two.
+ * that the published container shipped no browser. It now ships one
+ * (`docs/adr/0016`), so this policy is the only thing standing between the two —
+ * and it was already the only thing for anyone running the HTTP entrypoint on a
+ * machine with a browser installed.
  *
  * Decisions are memoised per origin. A page pulling forty files from one CDN
  * would otherwise resolve that hostname forty times, and the audit already has

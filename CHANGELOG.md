@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The hosted instance runs `accessibility_audit`.** The published image ships
+  the Chromium headless shell, and every tool now answers the same there as on
+  your own machine. The rule that decided it is the owner's: someone who cannot
+  run a server themselves should not get a weaker tool than someone who can, so
+  one tool answering "not here" was a defect rather than a documented limit.
+
+  `--only-shell` installs 196 MB where the full browser is several hundred more,
+  and `chromium.launch({ headless: true })` uses it — verified against a browser
+  directory containing nothing else. The base image moves from Alpine to Debian,
+  which is forced rather than preferred: `playwright-core` publishes no musl
+  build, so installing on Alpine succeeds and the browser dies at launch. The
+  deployment moves to `--memory 1Gi` and `--execution-environment gen2`, the
+  latter because gen1's gVisor is where a browser is most likely to fail.
+  Chromium started there without `--no-sandbox`, so that flag is deliberately
+  absent and its own sandbox is intact.
+
+  What made this safe was the request guard released in 0.3.5.
+  [ADR 0016](docs/adr/0016-a-browser-in-the-published-image.md) records the
+  reversal, the measured cost — over 18,000 audits a month inside the free tier
+  — and what would reopen it.
+
 ## [0.3.5] - 2026-09-05
 
 ### Fixed

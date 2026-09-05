@@ -68,11 +68,12 @@ describe('createDefaultPorts with publicTargetsOnly', () => {
 });
 
 describe('rethrowForRemoteCaller', () => {
-  // The published container ships no browser on purpose (ADR 0013), so on a
-  // hosted instance this is the failure people actually meet — and the advice
-  // it carried, `npx playwright install chromium`, is for a machine they do
-  // not have. It read as a broken deployment rather than as a documented limit.
-  it('tells a remote caller to run the server themselves', () => {
+  // `npx playwright install chromium` is the fix on the machine the server runs
+  // on, and unfollowable by someone connecting to somebody else's. The published
+  // image now ships a browser (ADR 0016), so meeting this remotely means that
+  // deployment is broken — which the message has to say, since "run the server
+  // yourself" as a permanent answer would now be wrong.
+  it('tells a remote caller this instance is at fault, not the tool', () => {
     const missing = new CheckError(
       'not_found',
       'no browser is installed for this check; run `npx playwright install chromium` once',
@@ -80,7 +81,7 @@ describe('rethrowForRemoteCaller', () => {
 
     expect(() => {
       rethrowForRemoteCaller(missing);
-    }).toThrow(/run the server on your own machine/);
+    }).toThrow(/fault in this instance rather than a limit of the tool/);
   });
 
   it('keeps the code, and the original failure as the cause', () => {
