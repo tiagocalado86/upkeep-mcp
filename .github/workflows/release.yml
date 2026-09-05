@@ -1,15 +1,17 @@
-# Publishes to npm when a version tag is pushed.
+# Publishes to npm and lists the release in the MCP registry, when a version tag
+# is pushed.
 #
 # The package and the repository drift apart the moment publishing is a thing
 # someone remembers to do by hand, so it is wired to the tag instead. The gate
 # runs again here rather than trusting the tag: a tag can be pushed from a dirty
 # tree, and `npm publish` is not reversible.
 #
-# There is no publish token. npm authenticates this workflow over OIDC, which
-# means nothing long-lived to leak, rotate or forget — see
-# docs/adr/0014-trusted-publishing-over-a-token.md. One-time setup: name this
-# repository and this workflow file as the trusted publisher on the package's
-# npm settings page.
+# There is no publish token, for either destination. npm and the MCP registry
+# both authenticate this workflow over OIDC, which means nothing long-lived to
+# leak, rotate or forget — see
+# docs/adr/0014-trusted-publishing-over-a-token.md. One-time setup, for npm
+# only: name this repository and this workflow file as the trusted publisher on
+# the package's npm settings page.
 name: Release
 
 on:
@@ -20,6 +22,7 @@ permissions:
   contents: read
   # The OIDC token npm exchanges for a short-lived credential. Provenance rides
   # on the same identity, so the tarball is tied to the commit it was built from.
+  # The registry job below authenticates the same way, against the same token.
   id-token: write
 
 jobs:
@@ -62,3 +65,48 @@ jobs:
       # npm attaches provenance by itself when the publish is a trusted one.
       - name: Publish
         run: npm publish --access public
+
+  # A job of its own, on purpose. `npm publish` is not repeatable — re-running it
+  # for a version that already exists fails — so folding the registry into the
+  # job above would mean a registry hiccup could only be recovered by hand. Split
+  # like this, "re-run failed jobs" is the recovery.
+  registry:
+    needs: publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        # A Go binary from the registry's own releases; there is no npm package
+        # for it, and `npx mcp-publisher` installs something unrelated.
+        run: |
+          curl -sSfL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      # The registry verifies the listing against the npm package before it will
+      # accept it, and a just-published version takes a moment to be readable.
+      # Waiting turns a race into a delay.
+      - name: npm is serving the version being listed
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 1 10); do
+            if [ "$(npm view "$name@$version" name 2>/dev/null)" = "$name" ]; then
+              exit 0
+            fi
+            echo "attempt $attempt: $name@$version is not readable on npm yet"
+            sleep 15
+          done
+          echo "$name@$version never became readable on npm" >&2
+          exit 1
+
+      # Same trade as npm above: GitHub Actions presents a short-lived identity
+      # and the registry checks it owns the `io.github.tiagocalado86` namespace.
+      # No token, no repository secret — see ADR 0014.
+      - name: Authenticate over OIDC
+        run: ./mcp-publisher login github-oidc
+
+      # Reads `server.json`, whose version the offline suite already pins to
+      # package.json — so the gate in the job above is what catches a drift here.
+      - name: Publish the listing
+        run: ./mcp-publisher publish

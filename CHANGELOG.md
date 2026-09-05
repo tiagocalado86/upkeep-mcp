@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The MCP registry listing is published by the release workflow.** It was the
+  one step still done by hand, and it behaved the way hand-done steps do: npm
+  and the hosted instance reached 0.4.0 while the registry still offered 0.3.3 —
+  three versions back, so anyone who found the server there installed one
+  without the request guard that 0.3.5 shipped as a security fix.
+
+  A tag now lists the release as well as publishing it. `mcp-publisher` — a Go
+  binary from the registry's own releases, not an npm package — authenticates
+  with `login github-oidc` against the same short-lived identity npm already
+  uses, so this adds no secret to the repository. It runs as a separate job that
+  first waits for npm to serve the new version, because the registry validates
+  the listing against the package; separate, because `npm publish` cannot be
+  repeated for a version that already exists, and a registry failure has to be
+  re-runnable on its own.
+
 ## [0.4.0] - 2026-09-05
 
 ### Added

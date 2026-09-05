@@ -184,6 +184,9 @@ package that ends up behind the repository.
    version does not match `package.json`, and publishes. npm authenticates the
    workflow over OIDC and attaches provenance itself, so the tarball on npm is
    tied to the commit it was built from.
+5. A second job then lists the same version in the MCP registry. It waits for
+   npm to serve the new version before it starts, because the registry checks
+   the listing against the package. Nothing to do by hand.
 
 One-time setup, on npmjs.com rather than in this repository: name this
 repository and `release.yml` as the package's trusted publisher. There is no
@@ -197,11 +200,23 @@ a package still has to go out by hand — `npm publish --access public`, answeri
 the challenge — because a trusted publisher is configured on a package page that
 does not exist yet.
 
-The listing in the [MCP registry](https://registry.modelcontextprotocol.io) is
-separate and manual: `mcp-publisher login github` then `mcp-publisher publish`,
-which reads `server.json`. Only the npm package is listed there, never a demo
-URL: the registry removes servers that stop answering, and this project makes no
-availability promise about any instance of it.
+The listing in the [MCP registry](https://registry.modelcontextprotocol.io) runs
+in the same workflow, in a job of its own. It downloads `mcp-publisher` — a Go
+binary from the registry's releases, not an npm package — authenticates with
+`mcp-publisher login github-oidc`, and publishes `server.json`. The
+`io.github.tiagocalado86` namespace is granted by the OIDC identity of this
+repository, so there is no secret here either.
+
+It is a separate job because `npm publish` cannot be repeated for a version that
+already exists: if the registry step fails, re-running that job alone is the
+recovery, and re-running the whole workflow would not be.
+
+Only the npm package is listed there, never a demo URL: the registry removes
+servers that stop answering, and this project makes no availability promise
+about any instance of it.
+
+Locally — for a listing that has drifted, not for a release —
+`mcp-publisher login github` opens a browser instead.
 
 ## Reporting bugs and vulnerabilities
 
