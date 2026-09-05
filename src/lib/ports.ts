@@ -401,13 +401,16 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
       // browser's own traffic. Still one at a time per host, which is the part
       // that was politeness rather than bookkeeping.
       //
-      // Only the page's own URL passes the guard. A browser then fetches
-      // whatever that page embeds, which this cannot inspect — one more reason
-      // the published container ships no browser at all.
+      // The page's own URL and everything it embeds go through the same
+      // policy: `runAxe` is handed the check and applies it to every request
+      // the browser makes. Before that, only the page URL was inspected, and a
+      // single `<img>` was enough to make the server fetch anything.
       audit: async (url, tags) => {
         await assertReachable(guard, new URL(url));
         const run = await browsers
-          .run(new URL(url).host, () => runAxe(url, tags))
+          .run(new URL(url).host, () =>
+            runAxe(url, tags, undefined, (target) => assertReachable(guard, target)),
+          )
           // Only on a public instance: locally, "install a browser" is exactly
           // the right thing to tell the person who started the server.
           .catch((cause: unknown) => {

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The browser used by `accessibility_audit` made unchecked requests. The target
+  guard inspected the page's own URL and nothing else, so every script, image,
+  font and stylesheet that page embedded was fetched without passing any policy
+  — and an `<img src="http://169.254.169.254/…">` was enough to make the server
+  request cloud metadata from its own address, with whether it loaded observable
+  from the page. Every request the browser makes now goes through the same
+  `assertReachable` as the rest of the project, and one it refuses is aborted.
+  Decisions are memoised per origin — host and port together, since a different
+  port on an allowed host is a different decision — so a page pulling forty
+  files off one CDN resolves that hostname once.
+
+  This was reachable today by anyone running the HTTP entrypoint with a browser
+  installed, not only by a future hosted instance.
+  [ADR 0013](docs/adr/0013-playwright-core-and-an-optional-browser.md) recorded
+  the gap as accepted and now records it as closed, along with what remains: the
+  guard resolves a name and the browser then requests by name, which ADR 0012
+  already covers.
+
 ## [0.3.4] - 2026-09-05
 
 ### Added

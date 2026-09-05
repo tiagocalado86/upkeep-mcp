@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckName } from '../../src/lib/portfolio.js';
+import { runAxe, type AxeRun } from '../../src/lib/axe.js';
+import { CheckError } from '../../src/lib/errors.js';
 import { createDefaultPorts } from '../../src/lib/ports.js';
 import { runDomainCheck } from '../../src/tools/domain-check.js';
 import { runAccessibilityAudit } from '../../src/tools/accessibility-audit.js';
@@ -203,5 +205,41 @@ describe('accessibility_audit against a real page in a real browser', () => {
     expect(structured(result)['pageTitle']).toBe('Example Domain');
     expect(structured(result)['passCount']).toBeGreaterThan(0);
     expect(structured(result)['axeVersion']).toMatch(/^\d+\.\d+\.\d+$/);
+  }, 90_000);
+
+  it('still audits a page when every request is put through a policy', async () => {
+    // The unit test proves the decision; only a real browser proves the wiring —
+    // that intercepting every request does not break navigation or leave the
+    // page waiting on a route nobody answered.
+    const asked: string[] = [];
+
+    let run: AxeRun;
+    try {
+      run = await runAxe('https://example.com/', ['wcag2a'], 60_000, (target) => {
+        asked.push(target.hostname);
+        return Promise.resolve();
+      });
+    } catch (cause) {
+      // A machine that has not run `playwright install`, not a broken build.
+      expect(String(cause)).toContain('npx playwright install chromium');
+      return;
+    }
+
+    expect(run.title).toBe('Example Domain');
+    expect(asked).toContain('example.com');
+  }, 90_000);
+
+  it('renders nothing from an origin the policy refuses', async () => {
+    // Everything is refused, so the navigation itself is aborted. The audit has
+    // to fail rather than quietly report a clean page: zero violations found on
+    // a page that never loaded is the worst answer this tool could give.
+    const run = await runAxe('https://example.com/', ['wcag2a'], 60_000, () =>
+      Promise.reject(new Error('refused by policy')),
+    ).catch((cause: unknown) => cause);
+
+    expect(run).toBeInstanceOf(CheckError);
+    if (!(run instanceof CheckError)) return;
+    if (run.message.includes('npx playwright install chromium')) return;
+    expect(['network', 'timeout']).toContain(run.code);
   }, 90_000);
 });

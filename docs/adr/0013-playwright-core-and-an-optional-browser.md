@@ -56,16 +56,36 @@ single command that fixes it. Every other tool keeps working.
   else's. A hosted instance now answers "run the server on your own machine"
   (`rethrowForRemoteCaller` in `src/lib/ports.ts`), and the tool's description
   says a hosted instance cannot run this check before anyone calls it.
-- **The gap this leaves, stated sharply: subresources bypass the port rule.**
-  ADR 0012's guard checks a page's own URL, host and port. The browser then
-  fetches whatever that page embeds — scripts, frames, images, fonts — and none
-  of it passes `assertReachable`. A page that embeds a URL on a port this server
-  refuses to open itself has it fetched anyway, from the deployment's address.
-  So the port rule holds on every request this project _makes_ and on no
-  subresource, which is the whole distance between "this server is not a port
-  scanner" and "this process issues no unchecked request". Shipping no browser
-  is what keeps that distance out of a public instance; adding one closes it
-  only if the browser is put behind a proxy that applies the same guard.
+- **The gap this left is now closed, and it did not need a proxy.** As written,
+  ADR 0012's guard checked a page's own URL, host and port, and the browser then
+  fetched whatever that page embedded — scripts, frames, images, fonts — with
+  none of it passing `assertReachable`. A page embedding a URL on a port this
+  server refuses to open itself had it fetched anyway, from the deployment's
+  address. That was the whole distance between "this server is not a port
+  scanner" and "this process issues no unchecked request", and shipping no
+  browser was what kept the distance out of a public instance.
+
+  `blockRefused` in `src/lib/axe.ts` now intercepts every request the browser
+  makes — `context.route('**/*')` — and puts each one through the same
+  `assertReachable` the rest of the project uses, aborting what the policy
+  refuses. Decisions are memoised per origin, host and port together, since the
+  policy allows 443 and 80 and nothing else. A scheme that reaches no network is
+  allowed without asking, having no host to decide about.
+
+  This was worth doing whether or not a browser is ever added to the image: the
+  gap was reachable **today** by anyone running the HTTP entrypoint themselves
+  with a browser installed, not only in some future container.
+
+  What it does not close is what ADR 0012 already records: the guard resolves a
+  hostname and then lets the browser request by name, so a resolver that answers
+  differently the second time defeats it. That limitation is shared with every
+  other check here and is not specific to the browser.
+
+  So the reason for shipping no browser is now size, memory and cold start —
+  no longer an unguarded request surface. That is a weaker case than the one
+  this ADR was decided on, and whoever revisits it should say so plainly rather
+  than citing a gap that has been closed.
+
 - **Adding Chromium to this image is not a one-line change: `playwright-core`
   does not support Alpine.** Its platform table has no musl entry and falls back
   to `ubuntu24.04`, so `npx playwright install chromium` on `node:22-alpine`

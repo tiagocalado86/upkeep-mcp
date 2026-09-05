@@ -77,6 +77,9 @@ const SELECTOR_SAMPLE = 5;
  * @param url The page to audit.
  * @param tags axe tags selecting the standard, e.g. `['wcag2a', 'wcag2aa']`.
  * @param timeoutMs Deadline for the whole thing: launch, navigation and audit.
+ * @param allow Decides whether the browser may make a given request. Called for
+ *   the page and for every subresource it embeds — see {@link blockRefused}.
+ *   Omitted, the browser fetches whatever the page asks for.
  * @returns What axe found.
  * @throws {CheckError} `not_found` when no browser is installed, with the
  *   command that installs one; `timeout` when the deadline passes; `network`
@@ -86,6 +89,7 @@ export async function runAxe(
   url: string,
   tags: readonly string[],
   timeoutMs: number = TIMEOUTS.browserMs,
+  allow?: (target: URL) => Promise<void>,
 ): Promise<AxeRun> {
   const startedAt = Date.now();
   const browser = await launch(timeoutMs);
@@ -111,7 +115,7 @@ export async function runAxe(
   });
 
   try {
-    return await Promise.race([audit(browser, url, tags, remaining), deadline]);
+    return await Promise.race([audit(browser, url, tags, remaining, allow), deadline]);
   } finally {
     clearTimeout(timer);
     await browser.close().catch(() => undefined);
@@ -125,6 +129,7 @@ export async function runAxe(
  * @param url The page to audit.
  * @param tags axe tags selecting the standard.
  * @param timeoutMs Deadline for the navigation.
+ * @param allow Decides whether a request may be made, if the caller supplied one.
  * @returns What axe found.
  * @throws {CheckError} `timeout` or `network`.
  */
@@ -133,6 +138,7 @@ async function audit(
   url: string,
   tags: readonly string[],
   timeoutMs: number,
+  allow?: (target: URL) => Promise<void>,
 ): Promise<AxeRun> {
   const context = await browser.newContext({
     userAgent: USER_AGENT,
@@ -146,6 +152,8 @@ async function audit(
     // the policy is bypassed for the audit, not weakened for the visitor.
     bypassCSP: true,
   });
+  if (allow !== undefined) await blockRefused(context, allow);
+
   const page = await context.newPage();
 
   try {
@@ -177,6 +185,89 @@ async function audit(
   } finally {
     await context.close().catch(() => undefined);
   }
+}
+
+/**
+ * The part of Playwright's `Route` this needs, so a test can supply one.
+ *
+ * Declared structurally for the same reason `DnsResolver` is in `dns.ts`: a
+ * real `Route` only exists inside a running browser, and the decision this
+ * makes is worth testing without one
+ * (`docs/adr/0006-injected-ports-as-the-test-seam.md`). A real `Route`
+ * satisfies it.
+ */
+export interface InterceptedRequest {
+  request(): { url(): string };
+  continue(): Promise<void>;
+  abort(errorCode?: string): Promise<void>;
+}
+
+/** The part of Playwright's `BrowserContext` this needs. A real one satisfies it. */
+export interface RoutableContext {
+  // Playwright resolves this to a `Disposable`, which nothing here uses.
+  route(pattern: string, handler: (route: InterceptedRequest) => Promise<void>): Promise<unknown>;
+}
+
+/**
+ * Puts every request the browser makes through the same target policy the rest
+ * of the project uses.
+ *
+ * Without this, only the page's own URL is checked. A browser then fetches
+ * whatever that page embeds — images, scripts, fonts, stylesheets, an XHR the
+ * page fires on load — and none of it passes any guard. On an instance anyone
+ * can reach, that is the whole guard defeated by one `<img>`: a page saying
+ * `<img src="http://169.254.169.254/latest/meta-data/">` makes the server fetch
+ * it, and while the response is not handed back, whether it loaded is
+ * observable from the page itself. `docs/adr/0013` accepted this on the grounds
+ * that the published container ships no browser; the policy is enforced here so
+ * that stops being the only thing standing between the two.
+ *
+ * Decisions are memoised per origin. A page pulling forty files from one CDN
+ * would otherwise resolve that hostname forty times, and the audit already has
+ * a deadline to fit inside.
+ *
+ * A scheme that reaches no network — `data:`, `blob:`, `about:` — is allowed
+ * without asking. There is nothing for a target policy to decide about bytes
+ * that never leave the process.
+ *
+ * Exported for its own test: a real browser context only exists with a browser
+ * installed, and this decision is the one thing here that must hold on a
+ * machine that has none.
+ *
+ * @param context The browser context to intercept.
+ * @param allow Throws when a target may not be contacted.
+ * @throws Never — a refusal aborts the individual request, and a route that can
+ *   no longer be answered (the page navigated away) is not an error either.
+ */
+export async function blockRefused(
+  context: RoutableContext,
+  allow: (target: URL) => Promise<void>,
+): Promise<void> {
+  const decided = new Map<string, Promise<boolean>>();
+
+  await context.route('**/*', async (route: InterceptedRequest) => {
+    const target = new URL(route.request().url());
+
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+      await route.continue().catch(() => undefined);
+      return;
+    }
+
+    const origin = `${target.protocol}//${target.host}`;
+    let decision = decided.get(origin);
+    if (decision === undefined) {
+      decision = allow(target).then(
+        () => true,
+        () => false,
+      );
+      decided.set(origin, decision);
+    }
+
+    // `blockedbyclient` rather than a failure code: this is a policy decision,
+    // and a page that reports why its image did not load should say so.
+    const permitted = await decision;
+    await (permitted ? route.continue() : route.abort('blockedbyclient')).catch(() => undefined);
+  });
 }
 
 /**
