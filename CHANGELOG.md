@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-05
+
 ### Added
 
 - **`domain_check` reads SPF and DMARC.** Email authentication is the recurring
@@ -460,7 +462,8 @@ true })` refuses any host resolving outside public unicast space — loopback,
   this release needs sits on that boundary. See
   `docs/adr/0003-node-22-baseline.md`.
 
-[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/tiagocalado86/upkeep-mcp/compare/v0.3.3...v0.3.4
