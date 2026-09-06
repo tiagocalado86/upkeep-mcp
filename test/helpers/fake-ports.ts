@@ -5,12 +5,13 @@ import { createMemoryHistory, type RunHistory } from '../../src/lib/history.js';
 import type { RdapLookup } from '../../src/lib/rdap.js';
 import type { AxeRun } from '../../src/lib/axe.js';
 import { EMPTY_ROBOTS, parseRobots, type RobotsFetch } from '../../src/lib/robots.js';
-import type { TlsInspection } from '../../src/lib/tls.js';
+import type { RevocationMaterials, TlsInspection } from '../../src/lib/tls.js';
 import type {
   CertificateSummary,
   ChainSummary,
   DnsRecords,
   RdapRegistration,
+  RevocationReport,
 } from '../../src/types.js';
 
 /** The moment every tool test pretends it is. */
@@ -81,11 +82,13 @@ export function registration(overrides: Partial<RdapRegistration> = {}): RdapReg
 }
 
 /** Overrides accepted by {@link inspection}, with the certificate reachable directly. */
-export interface InspectionOverrides extends Partial<Omit<TlsInspection, 'chain'>> {
+export interface InspectionOverrides extends Partial<Omit<TlsInspection, 'chain' | 'revocation'>> {
   /** Fields of the end-entity certificate to change. */
   leaf?: Partial<CertificateSummary>;
   /** Fields of the chain verdict to change. */
   chain?: Partial<Omit<ChainSummary, 'leaf'>>;
+  /** Fields of the revocation materials to change. */
+  revocation?: Partial<RevocationMaterials>;
 }
 
 /**
@@ -96,7 +99,7 @@ export interface InspectionOverrides extends Partial<Omit<TlsInspection, 'chain'
  * @returns An inspection.
  */
 export function inspection(overrides: InspectionOverrides = {}): TlsInspection {
-  const { leaf, chain, ...rest } = overrides;
+  const { leaf, chain, revocation, ...rest } = overrides;
   return {
     chain: {
       leaf: {
@@ -122,7 +125,40 @@ export function inspection(overrides: InspectionOverrides = {}): TlsInspection {
     protocol: 'TLSv1.3',
     cipher: 'TLS_AES_256_GCM_SHA384',
     alpn: 'h2',
+    revocation: {
+      leafDer: new Uint8Array([0x30]),
+      issuerDer: new Uint8Array([0x30]),
+      responderUrls: ['http://ocsp.example.net'],
+      stapled: null,
+      ...revocation,
+    },
     ...rest,
+  };
+}
+
+/**
+ * A revocation report saying the certificate is fine.
+ *
+ * The default for every fake, because a certificate that could not be checked
+ * produces a finding, and a fixture named "healthy" that produces findings makes
+ * every test using it assert around one.
+ *
+ * @param overrides Fields to change.
+ * @returns A report.
+ */
+export function goodRevocation(overrides: Partial<RevocationReport> = {}): RevocationReport {
+  return {
+    checked: true,
+    status: 'good',
+    source: 'responder',
+    responder: 'http://ocsp.example.net',
+    signatureVerified: true,
+    revokedAt: null,
+    reason: null,
+    producedAt: '2026-08-31T06:00:00.000Z',
+    nextUpdate: '2026-09-07T06:00:00.000Z',
+    unavailableReason: null,
+    ...overrides,
   };
 }
 
@@ -132,6 +168,8 @@ export interface FakeOptions {
   dsRecord?: boolean | null;
   rdap?: RdapLookup | Error;
   tls?: TlsInspection | Error;
+  /** What the OCSP check establishes. Defaults to a certificate that is not revoked. */
+  revocation?: RevocationReport | Error;
   hops?: Record<
     string,
     { status: number; headers?: Record<string, string>; location?: string } | Error
@@ -190,6 +228,7 @@ export function fakePorts(options: FakeOptions = {}): Ports {
     },
     tls: {
       inspect: () => settle(options.tls, inspection()),
+      revocation: () => settle(options.revocation, goodRevocation()),
     },
     http: {
       hop: (url) => {

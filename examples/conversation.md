@@ -93,11 +93,14 @@ expired.badssl.com:443 certificate expires 2015-04-12 (-4160 days).
 Issued by COMODO RSA Domain Validation Secure Server CA.
 Chain does not verify (CERT_HAS_EXPIRED). Negotiated TLSv1.2.
 Host matched via *.badssl.com.
-Revocation is not checked.
+Revocation not established: http://ocsp.comodoca.com could not answer: the
+responder is not authorised to answer for this certificate.
 
 Needs attention:
 - [critical] The certificate expired 4160 days ago.
 - [critical] The certificate chain does not verify: CERT_HAS_EXPIRED.
+- [unknown] Revocation could not be checked: http://ocsp.comodoca.com could not
+  answer: the responder is not authorised to answer for this certificate.
 ```
 
 It is a wildcard certificate that does cover the host, issued by a CA that no

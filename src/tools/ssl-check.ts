@@ -14,7 +14,7 @@ import {
 } from '../lib/severity.js';
 import type { TlsInspection } from '../lib/tls.js';
 import { buildFailure, fail, guard, headlineOf, succeed } from '../lib/tool-result.js';
-import type { CheckOutcome, Finding } from '../types.js';
+import type { CheckOutcome, Finding, RevocationReport } from '../types.js';
 
 /**
  * TLS versions still considered acceptable for a client-facing site.
@@ -83,10 +83,89 @@ const outputSchema = z.object({
         .describe('Certificates in the chain, including the trust-store root when verified.'),
       issuers: z.array(z.string()).describe('Issuer common names, from the leaf upwards.'),
       revocationChecked: z
-        .literal(false)
-        .describe('Always false: this tool does not perform CRL or OCSP checks, and says so.'),
+        .boolean()
+        .describe(
+          'Whether a signed answer from the issuing authority established the revocation status. ' +
+            'False is common and usually harmless: since 2025 the two largest issuers publish no ' +
+            'OCSP responder at all. See `revocation` for what was established and why.',
+        ),
     })
     .describe('The certificate chain and whether it verified.'),
+
+  revocation: z
+    .object({
+      checked: z
+        .boolean()
+        .describe(
+          'Whether a signed answer from the issuing authority was obtained and verified. The one ' +
+            'field to branch on: `status` can be set while this is false, which means an answer ' +
+            'arrived but could not be traced to the authority that issued the certificate.',
+        ),
+      status: z
+        .enum(['good', 'revoked', 'unknown'])
+        .nullable()
+        .describe(
+          'What the responder said. "good" means not revoked; "revoked" means it was withdrawn ' +
+            'before its expiry date and browsers that check will refuse the site; "unknown" means ' +
+            'the authority does not recognise the serial number. Null when no answer was obtained.',
+        ),
+      source: z
+        .enum(['stapled', 'responder'])
+        .nullable()
+        .describe(
+          'Where the answer came from. "stapled" means the server included it in the handshake, ' +
+            'which costs no request at all; "responder" means the issuing authority was asked ' +
+            'directly.',
+        ),
+      responder: z
+        .string()
+        .nullable()
+        .describe(
+          'The OCSP responder that was contacted, e.g. "http://ocsp.digicert.com". Set even when ' +
+            'the query failed, so a responder that would not answer is distinguishable from a ' +
+            'certificate that names none.',
+        ),
+      signatureVerified: z
+        .boolean()
+        .describe(
+          "Whether the answer's signature verified against the issuing certificate authority. An " +
+            'OCSP response travels over plain HTTP by design; the signature, not the transport, ' +
+            'is what makes it evidence.',
+        ),
+      revokedAt: z.iso
+        .datetime()
+        .nullable()
+        .describe('When the certificate was revoked, ISO 8601 UTC. Null unless revoked.'),
+      reason: z
+        .string()
+        .nullable()
+        .describe(
+          'Why it was revoked, e.g. "keyCompromise", "superseded", "cessationOfOperation". Null ' +
+            'when the responder did not state one.',
+        ),
+      producedAt: z.iso
+        .datetime()
+        .nullable()
+        .describe('When the responder produced this answer, ISO 8601 UTC.'),
+      nextUpdate: z.iso
+        .datetime()
+        .nullable()
+        .describe(
+          'When a fresher answer will be published, ISO 8601 UTC. Typically about a week out, ' +
+            'because responders pre-sign their answers.',
+        ),
+      unavailableReason: z
+        .string()
+        .nullable()
+        .describe(
+          'Why nothing was established, e.g. "the certificate names no OCSP responder, so its ' +
+            'issuer distributes revocation by certificate revocation list only". Null when the ' +
+            'status was established.',
+        ),
+    })
+    .describe(
+      'Whether the certificate has been revoked, and how confidently that was established.',
+    ),
 
   coverage: z
     .object({
@@ -174,6 +253,11 @@ async function buildReport(
   }
 
   const inspection = tlsResult.value;
+  // After the handshake, never alongside it: an OCSP query identifies the
+  // certificate by hashes of its issuer's name and key, so there is nothing to
+  // ask until the chain has been served. It never throws — a responder that will
+  // not answer leaves a reason in the report rather than failing the check.
+  const revocation = await ports.tls.revocation(inspection);
   // `null`, not `false`: a lookup that failed established nothing, and reading
   // it as "www does not resolve" silently switches off the www coverage check.
   const wwwResolves = dnsResult.status === 'fulfilled' ? dnsResult.value.wwwResolves : null;
@@ -196,6 +280,7 @@ async function buildReport(
       port,
       inspection,
       coverage,
+      revocation,
       daysUntilExpiry,
       severity,
       apex,
@@ -221,8 +306,9 @@ async function buildReport(
       error: inspection.chain.error,
       length: inspection.chain.length,
       issuers: inspection.chain.issuers,
-      revocationChecked: false as const,
+      revocationChecked: revocation.checked,
     },
+    revocation,
     coverage,
     tls: { protocol: inspection.protocol, cipher: inspection.cipher, alpn: inspection.alpn },
   };
@@ -299,8 +385,13 @@ export function registerSslCheckTool(server: McpServer, ports: Ports = createDef
         'domain_check. It connects to the host but does not request a page; use uptime_check for that.',
         '',
         'Certificates that are expired, self-signed or untrusted are inspected and reported rather',
-        'than refused. Revocation is not checked: Node performs no CRL or OCSP lookup, so a revoked',
-        'certificate will be reported as a valid chain.',
+        'than refused. Revocation is checked over OCSP, preferring the response a server staples to',
+        'the handshake and otherwise asking the issuing authority directly; the answer is only',
+        'believed once its signature verifies against that authority. Many healthy certificates',
+        'cannot be checked at all, because since 2025 the two largest issuers publish no OCSP',
+        'responder and distribute revocation by CRL instead — that is reported as an unavailable',
+        'reason rather than as a problem with the site, and produces no finding. Certificate',
+        'revocation lists are not downloaded.',
         '',
         'A certificate is reported as a warning inside 14 days and as critical inside seven.',
         'That window is deliberately shorter than the one domain_check uses for registrations:',
@@ -326,6 +417,7 @@ interface FindingInputs {
     coversRequestedHost: boolean;
     wwwResolves: boolean | null;
   };
+  revocation: RevocationReport;
   daysUntilExpiry: number | null;
   severity: ReturnType<typeof expirySeverity>;
   apex: string;
@@ -342,6 +434,9 @@ interface FindingInputs {
 function collectFindings(inputs: FindingInputs): Finding[] {
   const findings: Finding[] = [];
   const { inspection, coverage, daysUntilExpiry, severity } = inputs;
+
+  const revoked = revocationFinding(inputs.revocation);
+  if (revoked !== null) findings.push(revoked);
 
   if (daysUntilExpiry === null) {
     // Not `ok`: the check failed to establish the date, which is not the same
@@ -438,6 +533,72 @@ function collectFindings(inputs: FindingInputs): Finding[] {
 }
 
 /**
+ * Judges what was established about revocation.
+ *
+ * Most certificates in a normal portfolio produce nothing here, and that is the
+ * point. Since 2025 the two largest issuers publish no OCSP responder at all, so
+ * "revocation could not be checked" is the ordinary state of a perfectly healthy
+ * site — grading it would put an unactionable line on nearly every row of a
+ * portfolio report and teach the reader to skip the column. A responder that was
+ * asked and would not answer is different: something that normally works did
+ * not, and that is worth one `unknown`.
+ *
+ * @param revocation What the check established.
+ * @returns A finding, or `null` when there is nothing to act on.
+ * @throws Never.
+ */
+function revocationFinding(revocation: RevocationReport): Finding | null {
+  const when = revocation.revokedAt?.slice(0, 10) ?? 'an unstated date';
+  const why = revocation.reason === null ? '' : ` (${revocation.reason})`;
+
+  if (revocation.status === 'revoked') {
+    // An unverified answer still names a date and a reason, and it is still the
+    // only claim anyone has made about this certificate — but it has not been
+    // shown to come from the authority that issued it, so it ranks below a fact.
+    return revocation.checked
+      ? finding(
+          'cert_revoked',
+          'critical',
+          `The certificate was revoked on ${when}${why}; browsers that check revocation will refuse the site.`,
+        )
+      : finding(
+          'cert_revoked_unverified',
+          'warning',
+          `A responder reports the certificate as revoked on ${when}${why}, but the answer's signature did not verify against the issuing authority, so it is not conclusive.`,
+        );
+  }
+
+  if (revocation.status === 'unknown' && revocation.checked) {
+    return finding(
+      'revocation_status_unknown',
+      'warning',
+      'The issuing authority does not recognise this certificate, which it should: a responder answering "unknown" for a certificate it signed points at a certificate that was never properly issued.',
+    );
+  }
+
+  if (revocation.status !== null && !revocation.checked) {
+    return finding(
+      'revocation_answer_unverified',
+      'unknown',
+      `The revocation answer for this certificate could not be verified: ${revocation.unavailableReason ?? 'its signature did not check out'}.`,
+    );
+  }
+
+  // Nothing was established, and there was something to establish it from — a
+  // responder that was asked, or a staple that was examined and refused. Not
+  // knowing is worth surfacing; not having anywhere to ask is not.
+  if (revocation.status === null && (revocation.responder !== null || revocation.source !== null)) {
+    return finding(
+      'revocation_check_failed',
+      'unknown',
+      `Revocation could not be checked: ${revocation.unavailableReason ?? 'the responder did not answer'}.`,
+    );
+  }
+
+  return null;
+}
+
+/**
  * Renders the human-readable half of the result.
  *
  * @param report The structured report.
@@ -451,6 +612,7 @@ function summarise(report: {
   daysUntilExpiry: number | null;
   issuer: string | null;
   chain: { valid: boolean; error: string | null };
+  revocation: RevocationReport;
   coverage: { matchedVia: string | null };
   tls: { protocol: string | null };
   findings: Finding[];
@@ -471,7 +633,7 @@ function summarise(report: {
   if (report.coverage.matchedVia !== null) {
     lines.push(`Host matched via ${report.coverage.matchedVia}.`);
   }
-  lines.push('Revocation is not checked.');
+  lines.push(describeRevocation(report.revocation));
 
   if (report.findings.length > 0) {
     lines.push('', 'Needs attention:');
@@ -479,6 +641,34 @@ function summarise(report: {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Puts the revocation verdict into one sentence.
+ *
+ * Always says something, including when nothing was established. The previous
+ * release of this tool printed a flat "Revocation is not checked." on every
+ * result; the difference now is that the line says which of several quite
+ * different situations applies, and a reader can act on the difference.
+ *
+ * @param revocation What the check established.
+ * @returns One sentence for a transcript.
+ * @throws Never.
+ */
+function describeRevocation(revocation: RevocationReport): string {
+  if (revocation.status === 'revoked') {
+    const when = revocation.revokedAt?.slice(0, 10) ?? 'an unstated date';
+    const why = revocation.reason === null ? '' : ` (${revocation.reason})`;
+    return `Revoked on ${when}${why}.`;
+  }
+
+  if (revocation.checked && revocation.status === 'good') {
+    return revocation.source === 'stapled'
+      ? 'Not revoked, per the response the server stapled to the handshake.'
+      : `Not revoked, per ${revocation.responder ?? 'the issuing authority'}.`;
+  }
+
+  return `Revocation not established: ${revocation.unavailableReason ?? 'no answer was obtained'}.`;
 }
 
 /**

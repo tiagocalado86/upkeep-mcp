@@ -54,13 +54,24 @@ writeFileSync(
   ),
 );
 
+// Two captures, because the two failures look nothing alike. The expired
+// certificate is visibly broken to any browser; the revoked one verifies
+// cleanly and only its issuer knows better, which is the case revocation
+// checking exists for and the case a screenshot cannot show.
 writeFileSync(
   'examples/ssl-check.md',
-  render(
-    'ssl_check',
-    '{ "name": "ssl_check", "arguments": { "domain": "expired.badssl.com" } }',
-    await runSslCheck({ domain: 'expired.badssl.com' }, ports),
-  ),
+  [
+    render(
+      'ssl_check',
+      '{ "name": "ssl_check", "arguments": { "domain": "expired.badssl.com" } }',
+      await runSslCheck({ domain: 'expired.badssl.com' }, ports),
+    ),
+    render(
+      'ssl_check on a revoked certificate whose chain still verifies',
+      '{ "name": "ssl_check", "arguments": { "domain": "revoked.grc.com" } }',
+      await runSslCheck({ domain: 'revoked.grc.com' }, ports),
+    ),
+  ].join('\n'),
 );
 
 writeFileSync(

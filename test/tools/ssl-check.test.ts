@@ -4,6 +4,7 @@ import { runSslCheck } from '../../src/tools/ssl-check.js';
 import {
   fakePorts,
   findingCodes,
+  goodRevocation,
   healthyDns,
   inspection,
   structured,
@@ -28,13 +29,127 @@ describe('runSslCheck', () => {
     expect(findingCodes(result)).toEqual([]);
   });
 
-  it('states plainly that revocation was not checked', async () => {
-    // Node performs no CRL or OCSP lookup, so a revoked certificate verifies
-    // cleanly. Saying so is the honest option.
+  it('reports a certificate its issuer says is fine, and says who said so', async () => {
     const result = await runSslCheck({ domain: 'example.com' }, fakePorts({ tls: inspection() }));
 
-    expect(structured(result)['chain']).toMatchObject({ revocationChecked: false });
-    expect(text(result)).toContain('Revocation is not checked');
+    expect(structured(result)['chain']).toMatchObject({ revocationChecked: true });
+    expect(structured(result)['revocation']).toMatchObject({ checked: true, status: 'good' });
+    expect(text(result)).toContain('Not revoked, per http://ocsp.example.net');
+    expect(findingCodes(result)).toEqual([]);
+  });
+
+  it('calls a stapled answer what it is, since it cost no request', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({ revocation: goodRevocation({ source: 'stapled', responder: null }) }),
+    );
+
+    expect(text(result)).toContain('stapled to the handshake');
+  });
+
+  it('reports a revoked certificate as critical, with the date and the reason', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        revocation: goodRevocation({
+          status: 'revoked',
+          revokedAt: '2026-06-09T14:37:38.000Z',
+          reason: 'keyCompromise',
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual(['cert_revoked']);
+    expect(structured(result)['severity']).toBe('critical');
+    expect(text(result)).toContain('Revoked on 2026-06-09 (keyCompromise).');
+  });
+
+  it('will not call an unverified revocation conclusive', async () => {
+    // An answer nobody can trace to the issuing authority is a claim, not a
+    // fact — and the obvious way to fake one is to serve it yourself. It is
+    // still reported, because it is the only claim anyone has made, but it does
+    // not outrank a certificate that is genuinely expiring.
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        revocation: goodRevocation({
+          status: 'revoked',
+          checked: false,
+          signatureVerified: false,
+          revokedAt: '2026-06-09T14:37:38.000Z',
+          reason: null,
+          unavailableReason: "the answer's signature did not verify",
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual(['cert_revoked_unverified']);
+    expect(structured(result)['severity']).toBe('warning');
+  });
+
+  it('says nothing at all when the issuer publishes no responder', async () => {
+    // The ordinary state of a healthy site since 2025: the two largest issuers
+    // run no responder. A finding here would land on nearly every row of a
+    // portfolio report, for something nobody can act on.
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        revocation: goodRevocation({
+          checked: false,
+          status: null,
+          source: null,
+          responder: null,
+          signatureVerified: false,
+          producedAt: null,
+          nextUpdate: null,
+          unavailableReason: 'the certificate names no OCSP responder',
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual([]);
+    expect(structured(result)['severity']).toBe('ok');
+    expect(text(result)).toContain('Revocation not established: the certificate names no OCSP');
+  });
+
+  it('surfaces a staple that was examined and refused, even with no responder', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        revocation: goodRevocation({
+          checked: false,
+          status: null,
+          source: 'stapled',
+          responder: null,
+          signatureVerified: false,
+          producedAt: null,
+          nextUpdate: null,
+          unavailableReason: 'the server stapled an answer that could not be used',
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual(['revocation_check_failed']);
+  });
+
+  it('surfaces a responder that was asked and would not answer', async () => {
+    const result = await runSslCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        revocation: goodRevocation({
+          checked: false,
+          status: null,
+          source: null,
+          signatureVerified: false,
+          producedAt: null,
+          nextUpdate: null,
+          unavailableReason: 'http://ocsp.example.net could not answer: HTTP 500',
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual(['revocation_check_failed']);
+    expect(structured(result)['severity']).toBe('unknown');
   });
 
   it('uses the port it was given', async () => {

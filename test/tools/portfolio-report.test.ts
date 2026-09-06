@@ -6,6 +6,7 @@ import { EMPTY_ROBOTS } from '../../src/lib/robots.js';
 import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
 import {
   NOW,
+  goodRevocation,
   healthyDns,
   inspection,
   registration,
@@ -70,6 +71,7 @@ function portfolioPorts(
           }),
         );
       },
+      revocation: () => Promise.resolve(goodRevocation()),
     },
     http: {
       hop: (url) => {

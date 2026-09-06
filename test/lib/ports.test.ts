@@ -1,14 +1,17 @@
+import { readFileSync } from 'node:fs';
 import { MockAgent, setGlobalDispatcher, type Dispatcher, getGlobalDispatcher } from 'undici';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CaaRecord as NodeCaaRecord } from 'node:dns';
 import type { DnsResolver } from '../../src/lib/dns.js';
 import { CheckError } from '../../src/lib/errors.js';
 import {
+  checkRevocation,
   createDefaultPorts,
   foundAnything,
   resolveRecordsWithCaa,
   rethrowForRemoteCaller,
 } from '../../src/lib/ports.js';
+import type { RevocationMaterials } from '../../src/lib/tls.js';
 import { emptyDns, healthyDns } from '../helpers/fake-ports.js';
 
 describe('foundAnything', () => {
@@ -218,5 +221,163 @@ describe('resolveRecordsWithCaa', () => {
     expect(records.a).toEqual(['203.0.113.10']);
     expect(records.ns).toEqual(['ns1.example.net']);
     expect(records.apexResolves).toBe(true);
+  });
+});
+
+describe('checkRevocation', () => {
+  /** The DER of a real certificate and its issuer, plus a real signed answer. */
+  function recorded(name: 'good' | 'revoked'): {
+    leafDer: Uint8Array;
+    issuerDer: Uint8Array;
+    responseDer: Uint8Array;
+  } {
+    const raw = JSON.parse(readFileSync(`test/fixtures/ocsp-${name}.json`, 'utf8')) as Record<
+      string,
+      string
+    >;
+    const decode = (field: string): Uint8Array =>
+      new Uint8Array(Buffer.from(raw[field] ?? '', 'base64'));
+    return {
+      leafDer: decode('leafDerBase64'),
+      issuerDer: decode('issuerDerBase64'),
+      responseDer: decode('responseDerBase64'),
+    };
+  }
+
+  /**
+   * @param overrides What the handshake yielded.
+   * @returns Materials for a certificate that names a responder and staples
+   *   nothing, which is the shape that makes the code ask.
+   */
+  function materials(overrides: Partial<RevocationMaterials> = {}): RevocationMaterials {
+    const { leafDer, issuerDer } = recorded('good');
+    return {
+      leafDer,
+      issuerDer,
+      responderUrls: ['http://ocsp.example.test'],
+      stapled: null,
+      ...overrides,
+    };
+  }
+
+  /** An `ask` that must never be called. */
+  const never = (): Promise<Uint8Array> => {
+    throw new Error('the responder was contacted when it should not have been');
+  };
+
+  it('prefers a stapled answer, and contacts nobody', async () => {
+    // The whole reason stapling is asked for in the handshake: the server has
+    // already put the question to the authority, so a staple settles it for
+    // free. A portfolio of twenty sites that all staple makes no OCSP requests.
+    const { responseDer } = recorded('good');
+
+    const report = await checkRevocation(materials({ stapled: responseDer }), never);
+
+    expect(report).toMatchObject({ checked: true, status: 'good', source: 'stapled' });
+    expect(report.responder).toBeNull();
+  });
+
+  it('asks the responder when nothing was stapled', async () => {
+    const { responseDer } = recorded('good');
+    const asked: string[] = [];
+
+    const report = await checkRevocation(materials(), (url, request) => {
+      asked.push(url);
+      expect(request.length).toBeGreaterThan(0);
+      return Promise.resolve(responseDer);
+    });
+
+    expect(asked).toEqual(['http://ocsp.example.test']);
+    expect(report).toMatchObject({
+      checked: true,
+      status: 'good',
+      source: 'responder',
+      responder: 'http://ocsp.example.test',
+    });
+  });
+
+  it('falls back to the responder when the staple does not hold up', async () => {
+    // A server that staples a useless response has not stopped the authority
+    // from answering. Reporting the staple's failure and stopping there would
+    // let any server suppress its own revocation check.
+    const { responseDer } = recorded('good');
+    const wrongStaple = recorded('revoked').responseDer;
+
+    const report = await checkRevocation(materials({ stapled: wrongStaple }), () =>
+      Promise.resolve(responseDer),
+    );
+
+    expect(report).toMatchObject({ checked: true, status: 'good', source: 'responder' });
+  });
+
+  it('reads a revoked certificate as revoked', async () => {
+    const { leafDer, issuerDer, responseDer } = recorded('revoked');
+
+    const report = await checkRevocation(
+      materials({ leafDer, issuerDer, stapled: responseDer }),
+      never,
+    );
+
+    expect(report).toMatchObject({ checked: true, status: 'revoked' });
+    expect(report.revokedAt).toMatch(/^\d{4}-/);
+  });
+
+  it('says so, without a responder, when the certificate names none', async () => {
+    // The ordinary state of a healthy site: since 2025 the two largest issuers
+    // run no responder at all. `responder` stays null, which is what tells the
+    // tool this is nothing to raise.
+    const report = await checkRevocation(materials({ responderUrls: [] }), never);
+
+    expect(report).toMatchObject({ checked: false, status: null, responder: null });
+    expect(report.unavailableReason).toMatch(/names no OCSP responder/);
+  });
+
+  it('keeps a refused staple visible when there is no responder to fall back to', async () => {
+    // Stapling an answer about some other certificate is how a server would try
+    // to suppress its own revocation check. It is refused either way, but with
+    // nowhere to fall back to the refusal is the whole story, and reporting it
+    // as "this authority publishes no responder" would hide it.
+    const wrongStaple = recorded('revoked').responseDer;
+
+    const report = await checkRevocation(
+      materials({ responderUrls: [], stapled: wrongStaple }),
+      never,
+    );
+
+    expect(report).toMatchObject({ checked: false, status: null, source: 'stapled' });
+    expect(report.unavailableReason).toMatch(/could not be used/);
+  });
+
+  it('says so when the server sent no issuer to address the question to', async () => {
+    const report = await checkRevocation(materials({ issuerDer: null }), never);
+
+    expect(report).toMatchObject({ checked: false, responder: null });
+    expect(report.unavailableReason).toMatch(/did not send the certificate's issuer/);
+  });
+
+  it('never throws, whatever the responder does', async () => {
+    // A revocation check is an extra question asked after a check that already
+    // succeeded. A responder having a bad day must not fail an `ssl_check` that
+    // has a certificate, a chain and an expiry date to report.
+    const report = await checkRevocation(materials(), () =>
+      Promise.reject(new CheckError('timeout', 'did not respond within 6s')),
+    );
+
+    expect(report).toMatchObject({ checked: false, status: null });
+    // The responder is kept, which is what separates "asked and got nothing"
+    // from "there was nobody to ask".
+    expect(report.responder).toBe('http://ocsp.example.test');
+    expect(report.unavailableReason).toMatch(/did not respond within 6s/);
+  });
+
+  it('reports an answer it cannot verify as unverified, not as good', async () => {
+    const { responseDer } = recorded('good');
+    const tampered = Uint8Array.from(responseDer);
+    tampered[tampered.length - 1] = (responseDer.at(-1) ?? 0) ^ 0xff;
+
+    const report = await checkRevocation(materials(), () => Promise.resolve(tampered));
+
+    expect(report).toMatchObject({ status: 'good', checked: false, signatureVerified: false });
+    expect(report.unavailableReason).toMatch(/signature did not verify/);
   });
 });

@@ -79,6 +79,66 @@ describe('ssl_check against badssl.com control certificates', () => {
   });
 });
 
+describe('ssl_check revocation against live responders', () => {
+  /**
+   * @param result A tool result.
+   * @returns Its revocation report.
+   */
+  function revocation(result: Awaited<ReturnType<typeof runSslCheck>>): Record<string, unknown> {
+    return structured(result)['revocation'] as Record<string, unknown>;
+  }
+
+  it('reads a stapled answer without contacting the authority', async () => {
+    // DigiCert staples. This is the free path and the one most large sites take.
+    const result = await runSslCheck({ domain: 'digicert.com' }, ports);
+
+    expect(revocation(result)).toMatchObject({
+      checked: true,
+      status: 'good',
+      source: 'stapled',
+      signatureVerified: true,
+    });
+    expect(findingCodes(result)).not.toContain('cert_revoked');
+  });
+
+  it('asks the responder when the server staples nothing', async () => {
+    // Sectigo issues GitHub's certificate with an OCSP URL and GitHub does not
+    // staple, which is exactly the case the direct query exists for.
+    const result = await runSslCheck({ domain: 'github.com' }, ports);
+
+    expect(revocation(result)).toMatchObject({ checked: true, status: 'good' });
+    expect(revocation(result)['responder']).toMatch(/^https?:\/\//);
+  });
+
+  it('finds a revoked certificate that the handshake reports as valid', async () => {
+    // The whole point of this feature. SSL.com publishes this host with a
+    // certificate revoked on purpose; Node verifies its chain happily, and
+    // before revocation checking this tool called it healthy.
+    const result = await runSslCheck({ domain: 'revoked-rsa-dv.ssl.com' }, ports);
+
+    expect(structured(result)['chain']).toMatchObject({ valid: true });
+    expect(revocation(result)).toMatchObject({
+      checked: true,
+      status: 'revoked',
+      signatureVerified: true,
+    });
+    expect(findingCodes(result)).toContain('cert_revoked');
+    expect(structured(result)['severity']).toBe('critical');
+  });
+
+  it("says plainly that a Let's Encrypt certificate cannot be checked at all", async () => {
+    // Not a defect and not a finding: since 2025 the issuer publishes no
+    // responder, so there is nowhere to ask. A tool that stayed silent here
+    // would be implying it had checked.
+    const result = await runSslCheck({ domain: 'letsencrypt.org' }, ports);
+
+    expect(revocation(result)).toMatchObject({ checked: false, status: null, responder: null });
+    expect(revocation(result)['unavailableReason']).toMatch(/names no OCSP responder/);
+    expect(findingCodes(result)).not.toContain('revocation_check_failed');
+    expect(structured(result)['severity']).toBe('ok');
+  });
+});
+
 describe('domain_check against real registries', () => {
   it('reads an expiry date and nameservers for a .com domain', async () => {
     const result = await runDomainCheck({ domain: 'example.com' }, ports);

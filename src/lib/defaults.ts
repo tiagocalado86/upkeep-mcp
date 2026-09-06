@@ -30,6 +30,15 @@ export const TIMEOUTS = {
    * open.
    */
   tlsMs: 8_000,
+  /**
+   * One OCSP query to a certificate authority's responder.
+   *
+   * Shorter than an HTTP hop on purpose. This is an extra question asked on top
+   * of a check that has already succeeded, so a slow responder must not be able
+   * to dominate the time an `ssl_check` takes; the answer is worth having, and
+   * it is not worth waiting ten seconds for.
+   */
+  ocspMs: 6_000,
   /** One HTTP hop. */
   httpHopMs: 10_000,
   /** The whole redirect chain, however many hops it takes. */
@@ -61,6 +70,15 @@ export const TTL = {
   rdapMs: 6 * 60 * 60_000,
   /** TLS probes. */
   tlsMs: 15 * 60_000,
+  /**
+   * OCSP answers, keyed by certificate fingerprint.
+   *
+   * Responders publish an answer good for about a week and pre-sign it, so
+   * asking twice inside an hour returns the identical bytes. An hour is short
+   * against that and long enough that a twenty-site portfolio report run twice
+   * in a morning asks each certificate authority once.
+   */
+  ocspMs: 60 * 60_000,
   /**
    * `robots.txt`. Longer than DNS because it changes rarely, and every page a
    * crawl touches has to consult it: caching is what keeps one audit from
@@ -100,6 +118,14 @@ export const LIMITS = {
    * as truncated rather than analysed as if it were whole.
    */
   maxHtmlBytes: 2 * 1024 * 1024,
+  /**
+   * Bytes of an OCSP response read before the rest is abandoned.
+   *
+   * Real responses are a few hundred bytes; the largest observed here was 623.
+   * Sixty-four kibibytes is far past any legitimate answer and still small
+   * enough that a responder streaming forever costs nothing.
+   */
+  maxOcspResponseBytes: 64 * 1024,
   /** Bytes of a `robots.txt` or sitemap read before the rest is abandoned. */
   maxSupportFileBytes: 512 * 1024,
   /**

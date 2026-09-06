@@ -50,12 +50,31 @@ expired.badssl.com:443 certificate expires 2015-04-12 (-4159 days).
 Issued by COMODO RSA Domain Validation Secure Server CA.
 Chain does not verify (CERT_HAS_EXPIRED). Negotiated TLSv1.2.
 Host matched via *.badssl.com.
-Revocation is not checked.
+Revocation not established: http://ocsp.comodoca.com could not answer: the
+responder is not authorised to answer for this certificate.
 
 Needs attention:
 - [critical] The certificate expired 4159 days ago.
 - [critical] The certificate chain does not verify: CERT_HAS_EXPIRED.
 ```
+
+```
+> Check the certificate on revoked.grc.com
+
+revoked.grc.com:443 certificate expires 2026-10-18 (42 days).
+Issued by Certera RSA DV SSL CA 2.
+Chain verifies. Negotiated TLSv1.2.
+Host matched via revoked.grc.com.
+Revoked on 2025-09-18.
+
+Needs attention:
+- [critical] The certificate was revoked on 2025-09-18; browsers that check
+  revocation will refuse the site.
+```
+
+Note what the second one does: the chain **verifies**. Node performs no
+revocation lookup of its own, so that certificate completes a handshake and
+reports as trusted. Only asking its issuer finds the problem.
 
 Every tool also returns structured data alongside the text, so results can be
 sorted, filtered and fed into a report. Full input and output for each tool is in
@@ -95,9 +114,24 @@ Input: `domain`, optional `port` (443 by default).
 
 Returns expiry and days remaining, issuer, whether the chain verifies and why not
 when it does not, which hostnames the certificate covers and via which SAN entry,
-and the negotiated TLS version and cipher. Expired, self-signed and untrusted
-certificates are inspected and reported rather than refused — those are the ones
-worth finding.
+the negotiated TLS version and cipher, and whether the certificate has been
+revoked. Expired, self-signed and untrusted certificates are inspected and
+reported rather than refused — those are the ones worth finding.
+
+Revocation is checked over OCSP. The response a server staples to the handshake
+is preferred, because it costs no request at all; when there is none, the
+responder named in the certificate is asked directly. An answer is only believed
+once its signature verifies against the issuing authority, and only once its
+`CertID` is shown to be about the certificate that was actually served — a server
+serving a revoked certificate alongside a valid response for a different one is
+otherwise the easy way to fake a clean result.
+
+Many healthy certificates cannot be checked at all: since 2025 the two largest
+issuers, Let's Encrypt and Google Trust Services, publish no OCSP responder and
+distribute revocation by CRL. That is reported as an `unavailableReason` and
+produces **no finding**, because it is a decision of the certificate authority
+and nothing the site owner can act on. A responder that was asked and would not
+answer is different, and gets one `unknown`.
 
 ### `uptime_check`
 
@@ -306,9 +340,19 @@ information that any person with a browser or a DNS resolver could read.
 Stated plainly, because a tool that hides what it cannot do is worse than one
 that does less.
 
-- **Certificate revocation is not checked.** Node performs no CRL or OCSP lookup,
-  so a revoked certificate is reported as a valid chain. The output says
-  `revocationChecked: false` rather than implying otherwise.
+- **Certificate revocation lists are not downloaded.** Revocation is checked over
+  OCSP, and only over OCSP. A CRL is a file of every serial an authority has ever
+  revoked — megabytes, fetched to answer one question about one certificate — so
+  a certificate whose issuer publishes no responder is reported as unchecked,
+  with the reason, rather than being judged from a file this tool declined to
+  read. Since 2025 that covers Let's Encrypt and Google Trust Services, which is
+  a large share of the web. See
+  [`docs/adr/0017`](docs/adr/0017-ocsp-without-crl.md).
+- **An OCSP answer is a point in time, not a subscription.** Responders pre-sign
+  about a week ahead, so `good` means "not revoked as of `thisUpdate`", and a
+  certificate revoked an hour ago may still read as good until the authority
+  publishes its next answer. `producedAt`, `thisUpdate` and `nextUpdate` are all
+  reported so the age of the answer is visible rather than implied.
 - **Some registries publish no expiry date.** `.de`, `.nl`, `.no`, `.au` and
   `.fi` do not publish one over any protocol. The result names the registry and
   says so, instead of showing an indefinite "unknown". Registration data comes

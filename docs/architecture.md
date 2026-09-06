@@ -72,8 +72,11 @@ made. An unreadable `robots.txt` is treated as a refusal, per RFC 9309 §2.3.1.
 ## Why the pieces are where they are
 
 **`lib/` splits into I/O and pure logic.** `dns.ts`, `tls.ts`, `rdap.ts` and
-`http-client.ts` make requests. `severity.ts`, `http-headers.ts`, `json.ts` and
-`domain-name.ts` do not — they are plain functions over data. Almost every
+`http-client.ts` make requests. `severity.ts`, `http-headers.ts`, `json.ts`,
+`der.ts`, `ocsp.ts` and `domain-name.ts` do not — they are plain functions over
+data. `ocsp.ts` is the clearest case: it builds the bytes of a revocation query
+and reads the bytes of the answer, signature verification included, and never
+learns where either came from. Almost every
 awkward real-world case lives in the second group, which is why most of the test
 suite needs no network at all.
 
@@ -118,7 +121,9 @@ never fails a build.
 ## What is deliberately absent
 
 No database and no cache file (`docs/adr/0005`). No WHOIS (`docs/adr/0004`). No
-revocation checking — Node performs no CRL or OCSP lookup, so a revoked
-certificate verifies cleanly, and the output says so rather than implying
-otherwise. No DNSSEC validation: the tool reports whether a delegation is signed
-and where it learned that, and never claims to have validated a chain.
+certificate revocation lists — revocation is checked over OCSP and only over
+OCSP, so a certificate whose issuer publishes no responder is reported as
+unchecked with the reason rather than judged from a multi-megabyte file this tool
+declined to fetch (`docs/adr/0017`). No DNSSEC validation: the tool reports
+whether a delegation is signed and where it learned that, and never claims to
+have validated a chain.

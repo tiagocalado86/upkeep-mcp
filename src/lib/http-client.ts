@@ -41,6 +41,18 @@ export interface TextResult {
   truncated: boolean;
 }
 
+/** A binary response, read up to a byte limit. */
+export interface BytesResult {
+  /** HTTP status code. */
+  status: number;
+  /** The `Content-Type` header with any parameters stripped, lowercased. */
+  contentType: string | null;
+  /** The body, cut off at the byte limit. */
+  body: Uint8Array;
+  /** Whether the body was longer than the limit and was cut off. */
+  truncated: boolean;
+}
+
 /**
  * Fetches a text document, following redirects, and stops reading at a limit.
  *
@@ -106,8 +118,26 @@ async function readCapped(
   response: Response,
   maxBytes: number,
 ): Promise<{ body: string; truncated: boolean }> {
+  const { bytes, truncated } = await readCappedBytes(response, maxBytes);
+  // `fatal: false` so that a body cut mid-character, or one mislabelled by the
+  // server, degrades to a replacement character instead of failing the check.
+  return { body: new TextDecoder('utf-8', { fatal: false }).decode(bytes), truncated };
+}
+
+/**
+ * Reads a response body up to a byte limit, without decoding it.
+ *
+ * @param response The response to drain.
+ * @param maxBytes Most bytes to keep.
+ * @returns The bytes and whether anything was left unread.
+ * @throws Whatever the underlying stream throws; the caller categorises it.
+ */
+async function readCappedBytes(
+  response: Response,
+  maxBytes: number,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   const stream = response.body;
-  if (stream === null) return { body: '', truncated: false };
+  if (stream === null) return { bytes: new Uint8Array(0), truncated: false };
 
   // `@types/node` types a response stream as `ReadableStream<any>`, so the chunk
   // type has to be pinned here. The Streams standard guarantees `Uint8Array`
@@ -148,9 +178,7 @@ async function readCapped(
     offset += chunk.byteLength;
   }
 
-  // `fatal: false` so that a body cut mid-character, or one mislabelled by the
-  // server, degrades to a replacement character instead of failing the check.
-  return { body: new TextDecoder('utf-8', { fatal: false }).decode(merged), truncated };
+  return { bytes: merged, truncated };
 }
 
 /**
@@ -234,6 +262,66 @@ export async function getJson(
   }
 
   return { status: response.status, headers: response.headers, body: await decodeJson(response) };
+}
+
+/**
+ * Posts bytes and reads bytes back, up to a limit.
+ *
+ * The one request this project makes that is neither text nor JSON. An OCSP
+ * query is a DER structure posted to the certificate authority's responder, and
+ * the answer is DER too — it travels over plain HTTP by design, because the
+ * response carries the authority's signature and it is the signature, not the
+ * transport, that makes it evidence.
+ *
+ * Redirects are not followed. The responder URL comes out of the certificate
+ * being inspected, so it is chosen by whoever runs the target; following its
+ * redirects would take the request somewhere the target guard has not been asked
+ * about, which is the whole shape of the hole this project closed in `0.3.2`.
+ *
+ * @param url Absolute URL to post to.
+ * @param body The request body.
+ * @param contentType Value for the `Content-Type` header.
+ * @param timeoutMs Deadline for the whole request, reading included.
+ * @param maxBytes Most bytes to read before giving up on the rest.
+ * @returns The status, content type and as much of the body as was read.
+ * @throws {CheckError} `timeout` when the deadline passes, `network` otherwise.
+ */
+export async function postForBytes(
+  url: string,
+  body: Uint8Array,
+  contentType: string,
+  timeoutMs: number,
+  maxBytes: number,
+): Promise<BytesResult> {
+  const deadline = AbortSignal.timeout(timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      redirect: 'error',
+      signal: deadline,
+      headers: { 'user-agent': USER_AGENT, accept: '*/*', 'content-type': contentType },
+      body,
+    });
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  }
+
+  let bytes: Uint8Array;
+  let truncated: boolean;
+  try {
+    ({ bytes, truncated } = await readCappedBytes(response, maxBytes));
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  }
+
+  return {
+    status: response.status,
+    contentType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? null,
+    body: bytes,
+    truncated,
+  };
 }
 
 /**

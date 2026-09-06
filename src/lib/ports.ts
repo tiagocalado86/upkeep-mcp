@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { DnsRecords } from '../types.js';
+import type { DnsRecords, RevocationReport } from '../types.js';
 import { CheckError } from './errors.js';
 import { runAxe, type AxeRun } from './axe.js';
 import { createTtlCache } from './cache.js';
-import { LIMITS, TTL } from './defaults.js';
+import { LIMITS, TIMEOUTS, TTL } from './defaults.js';
 import {
   hasDsRecord,
   resolveAddresses,
@@ -12,7 +12,14 @@ import {
   resolveRecords,
   type DnsResolver,
 } from './dns.js';
-import { getText, httpHop, type HttpHopResult, type TextResult } from './http-client.js';
+import {
+  getText,
+  httpHop,
+  postForBytes,
+  type HttpHopResult,
+  type TextResult,
+} from './http-client.js';
+import { buildOcspRequest, readOcspResponse } from './ocsp.js';
 import {
   allowAnyTarget,
   allowOnlyPublicTargets,
@@ -24,7 +31,7 @@ import { createHostLimiter } from './rate-limit.js';
 import { fetchRobots, type RobotsFetch } from './robots.js';
 import { lookupDomain, type RdapLookup } from './rdap.js';
 import { daysUntil } from './severity.js';
-import { inspectTls, type TlsInspection } from './tls.js';
+import { inspectTls, type RevocationMaterials, type TlsInspection } from './tls.js';
 
 /**
  * The I/O boundary.
@@ -52,6 +59,15 @@ export interface RdapClient {
 export interface TlsProbe {
   /** Connects and reports on the certificate served for `host`. */
   inspect(host: string, port: number, names: readonly string[]): Promise<TlsInspection>;
+  /**
+   * Establishes whether the certificate an inspection found has been revoked.
+   *
+   * Separate from {@link TlsProbe.inspect} because it may cost a request to a
+   * third party — the certificate authority's responder — which a handshake
+   * never does, and because it fails on its own: a responder that will not
+   * answer leaves a report with an unavailable reason, not a failed check.
+   */
+  revocation(inspection: TlsInspection): Promise<RevocationReport>;
 }
 
 /** Single HTTP requests, never following redirects. */
@@ -116,6 +132,7 @@ let shared: {
   dsCache: ReturnType<typeof createTtlCache<boolean | null>>;
   rdapCache: ReturnType<typeof createTtlCache<RdapLookup>>;
   tlsCache: ReturnType<typeof createTtlCache<TlsInspection>>;
+  ocspCache: ReturnType<typeof createTtlCache<RevocationReport>>;
   robotsCache: ReturnType<typeof createTtlCache<RobotsFetch>>;
   history: RunHistory;
   limiter: ReturnType<typeof createHostLimiter>;
@@ -132,6 +149,7 @@ function sharedState(): NonNullable<typeof shared> {
     dsCache: createTtlCache<boolean | null>({ ttlMs: TTL.dnsMs }),
     rdapCache: createTtlCache<RdapLookup>({ ttlMs: TTL.rdapMs }),
     tlsCache: createTtlCache<TlsInspection>({ ttlMs: TTL.tlsMs }),
+    ocspCache: createTtlCache<RevocationReport>({ ttlMs: TTL.ocspMs }),
     robotsCache: createTtlCache<RobotsFetch>({ ttlMs: TTL.robotsMs }),
     history: createMemoryHistory(),
     limiter: createHostLimiter({
@@ -313,6 +331,194 @@ export function rethrowForRemoteCaller(cause: unknown): never {
 }
 
 /**
+ * Establishes whether a certificate has been revoked, preferring the answer that
+ * costs nothing.
+ *
+ * A stapled response is tried first and settles the question without contacting
+ * anyone: the server has already asked the certificate authority and included
+ * the signed reply. Only when there is no staple, or the staple does not hold
+ * up, is the responder named in the certificate asked directly.
+ *
+ * Nothing here throws. Several perfectly healthy certificates cannot be checked
+ * at all — since 2025 the two largest issuers publish no responder, and a server
+ * that omits its intermediate leaves no issuer to ask — so every dead end
+ * becomes a report with a reason attached. A certificate that could not be
+ * checked and a certificate that is fine must not look the same, and neither may
+ * fail the `ssl_check` around them.
+ *
+ * Exported for its own test: the preference order and the "never throws"
+ * guarantee are the whole of it, and neither is observable through
+ * {@link createDefaultPorts}, which opens real sockets.
+ *
+ * @param materials What the handshake yielded. See {@link RevocationMaterials}.
+ * @param ask Posts a DER request to a responder and returns its DER answer.
+ *   Injected so the guard, the limiter and the deadline stay in one place.
+ * @returns What was established, and why nothing was when nothing was.
+ * @throws Never.
+ */
+export async function checkRevocation(
+  materials: RevocationMaterials,
+  ask: (url: string, request: Uint8Array) => Promise<Uint8Array>,
+): Promise<RevocationReport> {
+  const { leafDer, issuerDer, responderUrls, stapled } = materials;
+
+  if (leafDer === null) return unavailable('no certificate was served');
+  if (issuerDer === null) {
+    return unavailable(
+      "the server did not send the certificate's issuer, and a revocation query is addressed to " +
+        'the issuer',
+    );
+  }
+
+  let staplingProblem: string | null = null;
+  if (stapled !== null) {
+    try {
+      return fromAnswer(readOcspResponse(stapled, leafDer, issuerDer), 'stapled', null);
+    } catch (cause) {
+      // Not returned yet: a server that staples a useless response has not
+      // stopped the certificate authority from answering, and falling through
+      // asks it. Suppressing one's own revocation check by stapling rubbish
+      // would otherwise work. The reason is kept in case there is nowhere to
+      // fall back to, since a staple that does not hold up is the interesting
+      // half of that situation.
+      staplingProblem = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  const responder = responderUrls[0];
+  if (responder === undefined) {
+    return staplingProblem === null
+      ? unavailable(
+          'the certificate names no OCSP responder, so its issuer distributes revocation by ' +
+            'certificate revocation list only',
+        )
+      : {
+          ...unavailable(
+            `the server stapled an answer that could not be used (${staplingProblem}), and the ` +
+              'certificate names no responder to ask instead',
+          ),
+          // Recorded so the tool can tell this apart from a certificate that
+          // simply has nowhere to ask: something was examined and refused.
+          source: 'stapled',
+        };
+  }
+
+  try {
+    const answer = await ask(responder, buildOcspRequest(leafDer, issuerDer));
+    return fromAnswer(readOcspResponse(answer, leafDer, issuerDer), 'responder', responder);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    return unavailable(`${responder} could not answer: ${reason}`, responder);
+  }
+}
+
+/**
+ * Posts one OCSP query, under the same policy as every other outbound request.
+ *
+ * The responder URL is read out of the certificate the target served, which
+ * makes it a URL chosen by whoever runs that host. It therefore goes through the
+ * target guard exactly as a page URL does — without that, `ssl_check` would
+ * fetch whatever a certificate told it to.
+ *
+ * @param url The responder named in the certificate.
+ * @param request The DER `OCSPRequest`.
+ * @param guard The target policy in force.
+ * @param limiter The per-host limiter, so a portfolio of sites on one authority
+ *   is paced like any other third party.
+ * @returns The DER response.
+ * @throws {CheckError} `invalid_input` when the guard refuses the responder,
+ *   `timeout` past the deadline, `network` for a refused connection, a non-200
+ *   status, an empty body or a body too large to be an OCSP response.
+ */
+async function askResponder(
+  url: string,
+  request: Uint8Array,
+  guard: TargetGuard,
+  limiter: ReturnType<typeof createHostLimiter>,
+): Promise<Uint8Array> {
+  const target = new URL(url);
+  await assertReachable(guard, target);
+
+  const result = await limiter.run(target.host, () =>
+    postForBytes(
+      url,
+      request,
+      'application/ocsp-request',
+      TIMEOUTS.ocspMs,
+      LIMITS.maxOcspResponseBytes,
+    ),
+  );
+
+  if (result.status !== 200) {
+    throw new CheckError('network', `HTTP ${String(result.status)}`);
+  }
+  if (result.truncated) {
+    throw new CheckError(
+      'network',
+      `the answer exceeded ${String(LIMITS.maxOcspResponseBytes)} bytes`,
+    );
+  }
+  if (result.body.length === 0) throw new CheckError('network', 'the answer was empty');
+
+  return result.body;
+}
+
+/**
+ * @param answer What the responder said.
+ * @param source Where the answer came from.
+ * @param responder The responder's URL, or `null` for a stapled answer.
+ * @returns The report. `checked` follows the signature, not the status: an
+ *   answer that cannot be traced to the issuing authority is not evidence about
+ *   the certificate, whatever it says.
+ * @throws Never.
+ */
+function fromAnswer(
+  answer: ReturnType<typeof readOcspResponse>,
+  source: 'stapled' | 'responder',
+  responder: string | null,
+): RevocationReport {
+  return {
+    checked: answer.signatureVerified,
+    status: answer.status,
+    source,
+    responder,
+    signatureVerified: answer.signatureVerified,
+    revokedAt: answer.revokedAt,
+    reason: answer.reason,
+    producedAt: answer.producedAt,
+    nextUpdate: answer.nextUpdate,
+    unavailableReason: answer.signatureVerified
+      ? null
+      : "the answer's signature did not verify against the issuing certificate authority",
+  };
+}
+
+/**
+ * @param reason Why nothing could be established, as a phrase that reads after
+ *   "revocation was not checked because".
+ * @param responder The responder that was contacted, when one was. This is what
+ *   separates the two dead ends that look alike in a report: a certificate whose
+ *   authority publishes no responder is not a problem anyone can act on, while a
+ *   responder that was asked and would not answer is worth surfacing.
+ * @returns A report that establishes nothing and says why.
+ * @throws Never.
+ */
+function unavailable(reason: string, responder: string | null = null): RevocationReport {
+  return {
+    checked: false,
+    status: null,
+    source: null,
+    responder,
+    signatureVerified: false,
+    revokedAt: null,
+    reason: null,
+    producedAt: null,
+    nextUpdate: null,
+    unavailableReason: reason,
+  };
+}
+
+/**
  * Builds the real ports, with caching and per-host rate limiting wired in.
  *
  * The limiter is keyed by the host actually contacted, never by the domain being
@@ -324,8 +530,17 @@ export function rethrowForRemoteCaller(cause: unknown): never {
  * @throws Never.
  */
 export function createDefaultPorts(options: PortOptions = {}): Ports {
-  const { dnsCache, dsCache, rdapCache, tlsCache, robotsCache, history, limiter, browsers } =
-    sharedState();
+  const {
+    dnsCache,
+    dsCache,
+    rdapCache,
+    tlsCache,
+    ocspCache,
+    robotsCache,
+    history,
+    limiter,
+    browsers,
+  } = sharedState();
   const guard: TargetGuard =
     options.publicTargetsOnly === true
       ? allowOnlyPublicTargets((hostname) => resolveAddresses(hostname))
@@ -369,6 +584,17 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
         return tlsCache.fetch(`${host}:${String(port)}|${names.join(',')}`, () =>
           limiter.run(host, () => inspectTls(host, port, names)),
         );
+      },
+      // Keyed by the certificate's own fingerprint, not by the host: a
+      // responder's answer is about a certificate, so twenty hosts behind one
+      // load balancer serving one certificate ask the authority once.
+      revocation: (inspection) => {
+        const run = (): Promise<RevocationReport> =>
+          checkRevocation(inspection.revocation, (url, request) =>
+            askResponder(url, request, guard, limiter),
+          );
+        const fingerprint = inspection.chain.leaf?.fingerprintSha256 ?? null;
+        return fingerprint === null ? run() : ocspCache.fetch(fingerprint, run);
       },
     },
     http: {

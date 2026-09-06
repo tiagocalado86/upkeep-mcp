@@ -4,6 +4,37 @@ import type { CertificateSummary, ChainSummary } from '../types.js';
 import { LIMITS, TIMEOUTS } from './defaults.js';
 import { CheckError, categorise } from './errors.js';
 
+/**
+ * What is needed to ask a certificate's issuer whether it has been revoked.
+ *
+ * Carried out of the handshake rather than acted on here, because asking costs a
+ * request to a third party and this module opens sockets rather than deciding
+ * policy. `ports.ts` composes the two.
+ */
+export interface RevocationMaterials {
+  /** The end-entity certificate, DER encoded. `null` when none was served. */
+  leafDer: Uint8Array | null;
+  /**
+   * The certificate that signed it, DER encoded.
+   *
+   * `null` when the server omitted its intermediate — the same
+   * misconfiguration that shows up as `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. An
+   * OCSP request identifies a certificate by hashes of its issuer's name and
+   * key, so without the issuer there is no question to ask.
+   */
+  issuerDer: Uint8Array | null;
+  /** OCSP responder URLs the certificate publishes, in the order it lists them. */
+  responderUrls: string[];
+  /**
+   * A response the server stapled to this handshake, DER encoded.
+   *
+   * The free answer: the server has already asked the responder on the client's
+   * behalf and included the signed reply, so a staple settles the question
+   * without this project contacting the certificate authority at all.
+   */
+  stapled: Uint8Array | null;
+}
+
 /** Everything one TLS handshake revealed. */
 export interface TlsInspection {
   /** The certificate chain, and whether it verified. */
@@ -24,6 +55,8 @@ export interface TlsInspection {
   cipher: string | null;
   /** Negotiated ALPN protocol, or `null` when none was agreed. */
   alpn: string | null;
+  /** What this handshake yielded towards a revocation check. */
+  revocation: RevocationMaterials;
 }
 
 /**
@@ -59,6 +92,11 @@ export function inspectTls(
       ...(isIP(host) === 0 ? { servername: host } : {}),
       rejectUnauthorized: false,
       ALPNProtocols: ['h2', 'http/1.1'],
+      // Asks the server to include the issuer's signed revocation answer in the
+      // handshake. Costs one TLS extension and no request: a server that
+      // staples has already asked the certificate authority, so this is the
+      // only way to check revocation without contacting a third party at all.
+      requestOCSP: true,
     });
 
     // The `timeout` option would emit an event and leave the socket open, so the
@@ -72,6 +110,17 @@ export function inspectTls(
         ),
       );
     }, timeoutMs);
+
+    // Emitted during the handshake, before `secureConnect`. A server that
+    // declines to staple does not stay quiet: Node emits the event anyway and
+    // hands over `null`, which `new Uint8Array` turns into an empty array rather
+    // than refusing. Without this guard every certificate with no staple and no
+    // responder — every Let's Encrypt certificate, which is most of the web —
+    // reports as one whose staple was examined and refused.
+    let stapled: Uint8Array | null = null;
+    socket.once('OCSPResponse', (response: Buffer | null) => {
+      stapled = response === null || response.length === 0 ? null : new Uint8Array(response);
+    });
 
     socket.once('secureConnect', () => {
       clearTimeout(timer);
@@ -109,6 +158,12 @@ export function inspectTls(
           // getCipher().version is the cipher suite's *minimum* TLS version, not
           // the one negotiated. getProtocol() is the negotiated one.
           cipher: socket.getCipher().name,
+          revocation: {
+            leafDer: rawOf(detailed),
+            issuerDer: rawOf(issuerOf(detailed)),
+            responderUrls: detailed.infoAccess?.['OCSP - URI'] ?? [],
+            stapled,
+          },
           // alpnProtocol is three-valued: null before the handshake, false when
           // no protocol was agreed, otherwise the name.
           alpn: typeof socket.alpnProtocol === 'string' ? socket.alpnProtocol : null,
@@ -182,6 +237,21 @@ export function walkChain(leaf: DetailedPeerCertificate): CertificateSummary[] {
   }
 
   return summaries;
+}
+
+/**
+ * Reads a certificate's DER, tolerating the absence of the certificate itself.
+ *
+ * @param certificate The certificate, or `undefined` when the chain ended.
+ * @returns Its DER encoding, or `null` when there is no certificate to read.
+ * @throws Never.
+ */
+function rawOf(certificate: DetailedPeerCertificate | undefined): Uint8Array | null {
+  // Node types `raw` as always present, and it is not: an absent peer
+  // certificate comes back as an empty object, the same truth `walkChain`
+  // relies on. The assertion narrows the declared type rather than widening it.
+  const raw = (certificate as { raw?: Buffer } | undefined)?.raw;
+  return raw === undefined ? null : new Uint8Array(raw);
 }
 
 /**

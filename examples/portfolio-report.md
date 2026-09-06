@@ -26,7 +26,7 @@ Structured content:
 
 ```json
 {
-  "generatedAt": "2026-09-01T11:13:40.513Z",
+  "generatedAt": "2026-09-06T17:27:03.274Z",
   "source": "inline",
   "file": null,
   "siteCount": 3,
@@ -35,8 +35,8 @@ Structured content:
     "critical": 0,
     "warning": 2,
     "unknown": 0,
-    "info": 0,
-    "ok": 1
+    "info": 1,
+    "ok": 0
   },
   "needsAttention": [
     {
@@ -91,7 +91,7 @@ Structured content:
       "tags": [],
       "notes": null,
       "severity": "warning",
-      "soonestExpiryDays": 56,
+      "soonestExpiryDays": 51,
       "findings": [
         {
           "code": "no_https_redirect",
@@ -104,6 +104,12 @@ Structured content:
           "severity": "warning",
           "message": "No Strict-Transport-Security header is sent.",
           "check": "uptime"
+        },
+        {
+          "code": "dmarc_no_reporting_address",
+          "severity": "info",
+          "message": "DMARC publishes no \"rua\" address, so no reports arrive to show whether it is working.",
+          "check": "domain"
         },
         {
           "code": "csp_missing",
@@ -122,22 +128,22 @@ Structured content:
         {
           "check": "domain",
           "ran": true,
-          "severity": "ok",
-          "headline": "example.com expires 2027-08-13 (345 days).",
+          "severity": "info",
+          "headline": "example.com expires 2027-08-13 (340 days).",
           "error": null
         },
         {
           "check": "ssl",
           "ran": true,
           "severity": "ok",
-          "headline": "example.com:443 certificate expires 2026-10-27 (56 days).",
+          "headline": "example.com:443 certificate expires 2026-10-27 (51 days).",
           "error": null
         },
         {
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.com/ answered 200 in 23ms.",
+          "headline": "https://example.com/ answered 200 in 22ms.",
           "error": null
         }
       ]
@@ -181,7 +187,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.net/ answered 200 in 99ms.",
+          "headline": "https://example.net/ answered 200 in 53ms.",
           "error": null
         }
       ]
@@ -192,22 +198,29 @@ Structured content:
       "domain": "example.org",
       "tags": [],
       "notes": null,
-      "severity": "ok",
-      "soonestExpiryDays": 56,
-      "findings": [],
+      "severity": "info",
+      "soonestExpiryDays": 51,
+      "findings": [
+        {
+          "code": "dmarc_no_reporting_address",
+          "severity": "info",
+          "message": "DMARC publishes no \"rua\" address, so no reports arrive to show whether it is working.",
+          "check": "domain"
+        }
+      ],
       "checks": [
         {
           "check": "domain",
           "ran": true,
-          "severity": "ok",
-          "headline": "example.org expires 2027-08-30 (362 days).",
+          "severity": "info",
+          "headline": "example.org expires 2027-08-30 (357 days).",
           "error": null
         },
         {
           "check": "ssl",
           "ran": true,
           "severity": "ok",
-          "headline": "example.org:443 certificate expires 2026-10-27 (56 days).",
+          "headline": "example.org:443 certificate expires 2026-10-27 (51 days).",
           "error": null
         }
       ]

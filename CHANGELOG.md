@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ssl_check` checks whether a certificate has been revoked.** It was the
+  largest hole in the tool and the one the README named first: Node performs no
+  revocation lookup of any kind, so a certificate withdrawn an hour ago still
+  completes a handshake and still reports `authorized: true`. The previous
+  release said so honestly — `revocationChecked: false` on every result — and
+  still called a revoked certificate healthy. `revoked.grc.com` is the
+  demonstration: the chain verifies, every date is in range, and the certificate
+  has been revoked since September 2025. It is now `critical`.
+
+  The answer is preferred where it costs nothing. `requestOCSP` asks the server
+  to include the issuing authority's signed reply in the handshake itself, and a
+  server that staples has already put the question to the authority on the
+  client's behalf — one TLS extension, no request. Only a certificate with no
+  staple has its responder asked directly, on its own six-second deadline,
+  through the same target guard and per-host limiter as every other outbound
+  call, and cached for an hour by certificate fingerprint rather than by host.
+
+  Nothing is believed on sight. The signature is verified against the issuing
+  certificate, or against a delegated responder certificate carried in the
+  response — and a delegate is only accepted once it is shown to have been issued
+  by the same authority _and_ to carry the OCSP-signing extended key usage,
+  without which any certificate that authority ever issued could sign revocation
+  answers for the whole authority. The `CertID` is matched against the
+  certificate actually served, because a server serving a revoked certificate
+  alongside a genuine signed response about a different certificate is the
+  obvious way to fake a clean result, and refusing it costs one hash. An answer
+  that verifies against nothing is reported with `checked: false` and ranks below
+  a fact rather than being discarded or believed.
+
+  **Most healthy certificates will report `checked: false` forever, and that is
+  not a finding.** Since 2025 Let's Encrypt and Google Trust Services publish no
+  OCSP responder at all and distribute revocation by CRL, which between them is a
+  large share of a small-business portfolio. Grading that would put an
+  unactionable line on nearly every row of a `portfolio_report` — the same
+  reasoning that made an absent DMARC record `info` in 0.4.1, taken one step
+  further to no finding at all. A responder that _was_ asked and would not answer
+  is a different thing and gets one `unknown`, so the report distinguishes "there
+  was nobody to ask" from "I asked and got nothing".
+
+  Certificate revocation lists are deliberately not downloaded, and
+  [`docs/adr/0017`](docs/adr/0017-ocsp-without-crl.md) records why: a CRL shard is
+  hundreds of kilobytes to megabytes fetched to answer one question about one
+  certificate, and doing it properly means caching and verifying CRLs across runs
+  — a larger feature than this one, not a fallback inside it.
+
+  This adds DER parsing to the project (`src/lib/der.ts`), which was the real cost
+  of the decision. About 150 lines that understand definite-length tags and
+  nothing else: OCSP is a closed grammar of a dozen structures, much closer to
+  `robots.txt` than to HTML, and a hand-written reader keeps a dependency out of
+  the one part of this project that parses bytes a stranger's server chose. It
+  refuses indefinite lengths, refuses a length running past its buffer, and never
+  recurses.
+
+  Verified against live authorities as well as recorded fixtures: DigiCert
+  stapling a good answer, Sectigo answering GitHub's certificate on request,
+  SSL.com and Certera both reporting their own deliberately revoked test hosts as
+  revoked over RSA and ECDSA, and Let's Encrypt correctly reported as having no
+  responder to ask.
+
 ## [0.4.1] - 2026-09-05
 
 ### Added

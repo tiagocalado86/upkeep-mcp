@@ -310,6 +310,53 @@ export interface ChainSummary {
   error: string | null;
 }
 
+/**
+ * Whether a certificate has been revoked, and how confidently that was
+ * established.
+ *
+ * Shaped like {@link RdapRegistration}, and for the same reason: several
+ * perfectly healthy certificates cannot be checked at all — since 2025 the two
+ * largest issuers publish no OCSP responder — so "not established" needs to be a
+ * reported state with a reason attached rather than a silent `false`.
+ */
+export interface RevocationReport {
+  /**
+   * Whether a signed answer from the issuing CA was obtained and verified.
+   *
+   * The one field to branch on. `status` may be set while this is `false`, which
+   * means an answer arrived but could not be shown to have come from the CA.
+   */
+  checked: boolean;
+  /** What the responder said, or `null` when none was reached. */
+  status: 'good' | 'revoked' | 'unknown' | null;
+  /** Where the answer came from: stapled to the handshake, or fetched. */
+  source: 'stapled' | 'responder' | null;
+  /**
+   * The responder that was contacted, or `null` when none was — because the
+   * answer came stapled, or because the certificate names none.
+   *
+   * Set even when the query failed, which is what distinguishes a responder that
+   * would not answer from a certificate authority that runs none at all. Only
+   * the first is worth anyone's attention.
+   */
+  responder: string | null;
+  /** Whether the answer's signature verified against the issuing CA. */
+  signatureVerified: boolean;
+  /** When the certificate was revoked, ISO 8601 UTC. `null` unless revoked. */
+  revokedAt: string | null;
+  /** Why it was revoked, e.g. `keyCompromise`. `null` when unstated or not revoked. */
+  reason: string | null;
+  /** When the responder produced the answer, ISO 8601 UTC. */
+  producedAt: string | null;
+  /** When a fresher answer will be published, ISO 8601 UTC. */
+  nextUpdate: string | null;
+  /**
+   * Why no verified answer was obtained, in a form that can be read aloud —
+   * `the certificate names no OCSP responder`. `null` when one was.
+   */
+  unavailableReason: string | null;
+}
+
 /** One hop in a redirect chain. */
 export interface HttpHop {
   /** The URL requested at this hop. */

@@ -9,7 +9,7 @@ Call:
 Text returned to the conversation:
 
 ```
-example.com expires 2027-08-13 (341 days).
+example.com expires 2027-08-13 (340 days).
 Registrar: RESERVED-Internet Assigned Numbers Authority.
 Nameservers: elliott.ns.cloudflare.com, hera.ns.cloudflare.com.
 Resolves: apex yes, www yes. DNSSEC: delegation signed.
@@ -26,7 +26,7 @@ Structured content:
   "domain": "example.com",
   "unicodeDomain": null,
   "registrableDomain": "example.com",
-  "checkedAt": "2026-09-05T19:13:06.763Z",
+  "checkedAt": "2026-09-06T17:27:00.259Z",
   "severity": "info",
   "findings": [
     {
@@ -47,7 +47,7 @@ Structured content:
     ],
     "registeredAt": "1995-08-14T04:00:00.000Z",
     "expiresAt": "2027-08-13T04:00:00.000Z",
-    "daysUntilExpiry": 341,
+    "daysUntilExpiry": 340,
     "unavailableReason": null,
     "expirySeverity": "ok"
   },
@@ -55,8 +55,8 @@ Structured content:
     "apexResolves": true,
     "wwwResolves": true,
     "a": [
-      "104.20.23.154",
-      "172.66.147.243"
+      "172.66.147.243",
+      "104.20.23.154"
     ],
     "aaaa": [
       "2606:4700:10::6814:179a",
