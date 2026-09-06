@@ -105,7 +105,8 @@ Structured content:
     "kind": "unknown",
     "entryCount": 0,
     "sampleEntries": [],
-    "problem": "the sitemap URL answered 404"
+    "problem": "the sitemap URL answered 404",
+    "defects": []
   }
 }
 ```

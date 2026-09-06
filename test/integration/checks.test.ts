@@ -232,6 +232,30 @@ describe('seo_audit against a real page', () => {
     expect(readSitemap(decoded.body, response.truncated).kind).toBe('urlset');
   });
 
+  it('finds nothing wrong with the sitemap the protocol publishes about itself', async () => {
+    // The rules are checked against a real document here, because that is the
+    // only place a false alarm shows up: against fixtures every rule passes by
+    // construction. Run against sitemaps.org, nytimes.com, gov.uk,
+    // wordpress.org and vercel.com they reported nothing; against
+    // cloudflare.com and nodejs.org they reported something true. Only the
+    // clean case is pinned, because the others are somebody else's file and a
+    // large one is read only as far as the byte cap — nodejs.org's stray hosts
+    // sit past it, so a live assertion on them would be an assertion about
+    // where a cut lands.
+    const url = 'https://www.sitemaps.org/sitemap.xml';
+    const response = await ports.http.bytes(
+      url,
+      TIMEOUTS.supportFileMs,
+      LIMITS.maxSupportFileBytes,
+    );
+    const decoded = await decodeSitemapBody(response.body, response.truncated);
+    const reading = readSitemap(decoded.body, response.truncated, url);
+
+    expect(reading.kind).toBe('urlset');
+    expect(reading.entryCount).toBeGreaterThan(0);
+    expect(reading.defects).toEqual([]);
+  });
+
   it('obeys a robots.txt that forbids it, without requesting the page', async () => {
     // GitHub's robots.txt disallows unknown crawlers on this path. The check is
     // that the tool reports the refusal rather than fetching anyway.

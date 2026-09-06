@@ -11,7 +11,12 @@ import {
 } from '../lib/robots.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
-import { decodeSitemapBody, readSitemap, type SitemapReading } from '../lib/sitemap.js';
+import {
+  decodeSitemapBody,
+  readSitemap,
+  type SitemapDefect,
+  type SitemapReading,
+} from '../lib/sitemap.js';
 import { buildFailure, fail, failureFrom, guard, headlineOf, succeed } from '../lib/tool-result.js';
 import { normaliseUrl } from '../lib/url.js';
 import { SERVER_NAME } from '../lib/constants.js';
@@ -179,6 +184,42 @@ const outputSchema = z.object({
         ),
       sampleEntries: z.array(z.string()).describe('The first few entries, for recognition.'),
       problem: z.string().nullable().describe('Why it is unusable, in plain words.'),
+      defects: z
+        .array(
+          z.object({
+            code: z
+              .string()
+              .describe(
+                'Which rule of the sitemaps protocol is broken, e.g. "namespace", "loc_missing", ' +
+                  '"lastmod".',
+              ),
+            severity: z
+              .enum(['warning', 'info'])
+              .describe(
+                'warning when a consumer drops the entry or the whole file; info when the value is ' +
+                  'ignored and the page is still crawled.',
+              ),
+            count: z
+              .int()
+              .describe(
+                'How many entries break this rule. One template mistake breaks it once per URL, ' +
+                  'so this is the size of the problem, not the number of separate problems.',
+              ),
+            example: z
+              .string()
+              .nullable()
+              .describe(
+                'One offending value, for recognition. Null when the rule is about the document ' +
+                  'itself rather than an entry.',
+              ),
+            detail: z.string().describe('What is wrong and what it costs, in plain words.'),
+          }),
+        )
+        .describe(
+          'Rules of the sitemaps protocol the document breaks, one entry per rule and aggregated ' +
+            'by it. Empty when the sitemap is clean, and also when there was nothing readable to ' +
+            'check.',
+        ),
     })
     .describe('The sitemap declared in robots.txt, or /sitemap.xml when none is declared.'),
 });
@@ -376,7 +417,9 @@ export function registerSeoAuditTool(server: McpServer, ports: Ports = createDef
         'Reads one page and reports the technical SEO facts a maintenance retainer is judged on:',
         'title and meta description, heading structure, canonical, Open Graph, hreflang, language,',
         'viewport, images with no alt text, the state of robots.txt and the sitemap, and which',
-        'internal links are broken.',
+        'internal links are broken. The sitemap is checked against the rules of the sitemaps',
+        'protocol, so a file that exists but that consumers drop is reported as broken rather',
+        'than as present.',
         '',
         'Use it to answer "why is this page not being indexed?", "does this page have the metadata',
         'it needs?" or "are there broken links on the homepage?". It is the check to run before a',
@@ -543,6 +586,7 @@ async function checkSitemap(
         kind: 'unknown',
         entryCount: 0,
         sampleEntries: [],
+        defects: [],
         compressed: false,
         problem: `the sitemap is on ${new URL(url).host}, whose robots.txt does not allow this crawler to read it`,
       };
@@ -569,6 +613,7 @@ async function checkSitemap(
         kind: 'unknown',
         entryCount: 0,
         sampleEntries: [],
+        defects: [],
         problem: `the sitemap URL answered ${String(response.status)}`,
       };
     }
@@ -586,11 +631,14 @@ async function checkSitemap(
         kind: 'unknown',
         entryCount: 0,
         sampleEntries: [],
+        defects: [],
         problem: decoded.problem,
       };
     }
 
-    const reading = readSitemap(decoded.body, response.truncated);
+    // The URL it was served from decides whether an entry is on another host,
+    // so the reader is told where the document came from.
+    const reading = readSitemap(decoded.body, response.truncated, url);
     return {
       url,
       found: reading.problem === null,
@@ -609,6 +657,7 @@ async function checkSitemap(
       kind: 'unknown',
       entryCount: 0,
       sampleEntries: [],
+      defects: [],
       problem: cause instanceof Error ? cause.message : String(cause),
     };
   }
@@ -774,6 +823,10 @@ function collectFindings(inputs: {
     );
   }
 
+  for (const defect of sitemap.defects) {
+    findings.push(finding(`sitemap_${defect.code}`, defect.severity, describeDefect(defect)));
+  }
+
   if (inputs.robots.availability === 'absent') {
     findings.push(
       finding(
@@ -785,6 +838,26 @@ function collectFindings(inputs: {
   }
 
   return findings;
+}
+
+/**
+ * Writes one broken rule as a sentence someone can act on.
+ *
+ * The count carries the weight. A `<lastmod>` written the wrong way in a
+ * template is one mistake and forty thousand offending entries, and a report
+ * that says which rule, how wide it is and one address to look at is the one
+ * that gets fixed.
+ *
+ * @param defect One rule broken, with every offender counted into it.
+ * @returns The finding's message.
+ * @throws Never.
+ */
+function describeDefect(defect: SitemapDefect): string {
+  const example = defect.example === null ? '' : ` For example: ${defect.example}.`;
+
+  return defect.count === 1
+    ? `${defect.detail}${example}`
+    : `${defect.detail} ${String(defect.count)} entries do this.${example}`;
 }
 
 /**
@@ -961,6 +1034,7 @@ function blocked(
       kind: 'unknown' as const,
       entryCount: 0,
       sampleEntries: [],
+      defects: [],
       problem: 'not checked, because this host was not crawled',
     },
   };

@@ -297,6 +297,59 @@ describe('runSeoAudit', () => {
     expect(structured(result)['sitemap']).toMatchObject({ url: declared, entryCount: 2 });
   });
 
+  it('reports a sitemap that exists and that consumers will drop', async () => {
+    // A file that answers 200 and parses is not the same as a file that works.
+    // Without the namespace the document is not a sitemap to anything reading
+    // it strictly, and the entry on another host is dropped by everything.
+    const broken = `<urlset>
+      <url><loc>https://elsewhere.test/page</loc><lastmod>07/09/2026</lastmod></url>
+    </urlset>`;
+
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [SITEMAP_URL]: { status: 200, body: broken, contentType: 'application/xml' },
+        },
+        robots: 'User-agent: *',
+      }),
+    );
+
+    const codes = findingCodes(result);
+    expect(codes).toContain('sitemap_namespace');
+    expect(codes).toContain('sitemap_loc_other_host');
+    expect(codes).toContain('sitemap_lastmod');
+    // The file itself is readable, so it is neither missing nor unusable.
+    expect(codes).not.toContain('sitemap_missing');
+    expect(structured(result)['sitemap']).toMatchObject({ found: true, entryCount: 1 });
+  });
+
+  it('says how many entries break a rule, not once per entry', async () => {
+    const urls = Array.from(
+      { length: 12 },
+      (_unused, index) =>
+        `<url><loc>https://example.com/p${String(index)}</loc><priority>9</priority></url>`,
+    ).join('');
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [SITEMAP_URL]: {
+            status: 200,
+            body: `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`,
+            contentType: 'application/xml',
+          },
+        },
+        robots: 'User-agent: *',
+      }),
+    );
+
+    expect(findingCodes(result).filter((code) => code === 'sitemap_priority')).toHaveLength(1);
+    expect(text(result)).toContain('12 entries do this');
+  });
+
   it('reads a gzipped sitemap, which large sites serve and the protocol allows', async () => {
     // Before this, the bytes of a `.xml.gz` decoded to replacement characters
     // and the check reported a perfectly good sitemap as having no <urlset>

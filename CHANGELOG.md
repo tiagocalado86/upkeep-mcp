@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`seo_audit` checks the sitemap against the rules of the protocol.** A file
+  that answers `200` and parses is not the same as a file that works, and the
+  check could not tell them apart: it counted `<loc>` elements and called that a
+  sitemap. A root element with no `http://www.sitemaps.org/schemas/sitemap/0.9`
+  namespace is dropped whole by anything reading it strictly; an entry on
+  another host is discarded; a single unescaped `&` makes the document
+  ill-formed XML and costs every entry after it. All three read as perfectly
+  healthy to a check that counts entries, and all three are what a maintenance
+  retainer is supposed to catch.
+
+  The rules checked are the ones that decide whether a consumer keeps an entry:
+  the namespace; `<loc>` present, absolute, escaped, within 2048 characters and
+  on the host the sitemap was served from; `<lastmod>` a W3C Datetime; the seven
+  values of `<changefreq>`; `<priority>` within 0.0 to 1.0; the 50,000-entry
+  limit; and no `<url>`-only element inside an index entry.
+
+  **Each is graded by what it costs.** A rule that drops the entry or the file
+  is a `warning`; one whose value is merely ignored — a `<lastmod>` written
+  `07/09/2026`, a `<changefreq>` of `often` — is `info`, because a portfolio
+  report ranked by severity must not bury a certificate expiring on Friday under
+  a page of sitemap pedantry. Defects are aggregated by rule and carry a count
+  and one example: a mistake in a template breaks one rule in fifty thousand
+  entries, and the report says so once.
+
+  Two gradings came from running the checks against real sitemaps rather than
+  fixtures, which is the only place a false alarm shows up. `cloudflare.com`
+  declares its namespace as `https://www.sitemaps.org/...`, which is strictly a
+  different namespace — a namespace is an opaque identifier, not an address that
+  gets fetched — but every large consumer accepts it, so it is reported with the
+  explanation and graded `info` rather than as a file nobody reads. An entry on
+  the `www` sibling of the sitemap's own host is graded the same way, below an
+  entry on a stranger's host. Against sitemaps.org, nytimes.com, gov.uk,
+  wordpress.org and vercel.com the checks reported nothing at all; against
+  nodejs.org they reported eight pages listed on a host the sitemap is not
+  served from, which are genuinely not being submitted by that file.
+
+  There is no XML parser and no schema validator, so this is not XSD validation
+  and four rules are deliberately left unchecked — the 50 MB size limit, an
+  index that lists another index, duplicate entries, and whether a `<lastmod>`
+  is true. [`docs/adr/0019`](docs/adr/0019-sitemap-rules-without-a-schema-validator.md)
+  records the decision and lists them.
+
 ### Changed
 
 - **The release workflow waits ten minutes for npm, not two and a half.** The

@@ -156,6 +156,16 @@ by the first two bytes rather than by the file name or the content type, because
 plenty of files called `.xml.gz` are not, and plenty that are get labelled
 `text/xml`.
 
+The sitemap is then checked against the rules of the protocol, because a file
+that answers `200` and parses is not the same as a file that works: a root
+element with no sitemaps.org namespace is dropped whole, an entry on another
+host is discarded, and one unescaped `&` makes the document ill-formed XML and
+costs every entry after it. Each broken rule is reported once with the number of
+entries that break it and one example, so a mistake repeated across fifty
+thousand URLs reads as one thing to fix. A rule that only costs a hint — a
+`<lastmod>` that is not a W3C Datetime, a `<changefreq>` outside its seven
+values — is graded `info`; one that costs the entry or the file is a `warning`.
+
 `robots.txt` is read **before** anything else is requested and is obeyed — for
 the page itself and for every internal link. A page this crawler is not allowed
 to read is reported as such and is never fetched, and an unreadable `robots.txt`
@@ -391,12 +401,22 @@ that does less.
 - **`seo_audit` audits one page, not a site.** It requests the page's internal
   links to find broken ones, but it does not crawl: there is no second level.
   Auditing a site means calling it for the pages that matter.
-- **The sitemap check is structural, not a schema validation.** It establishes
-  that the document exists, declares `<urlset>` or `<sitemapindex>`, how many
-  `<loc>` entries it holds, and whether it arrived gzipped — a `sitemap.xml.gz`
-  is unpacked before it is read, capped at 16 MiB so that a decompression bomb
-  is refused rather than unpacked. It does not validate against the sitemaps.org
-  schema.
+- **The sitemap is checked against the protocol's rules, not against its XSD.**
+  It establishes that the document exists, declares `<urlset>` or
+  `<sitemapindex>`, how many `<loc>` entries it holds, and whether it arrived
+  gzipped — a `sitemap.xml.gz` is unpacked before it is read, capped at 16 MiB so
+  that a decompression bomb is refused rather than unpacked. It then checks the
+  rules that decide whether a consumer keeps an entry: the namespace, `<loc>`
+  present, absolute, escaped, within 2048 characters and on the sitemap's own
+  host, `<lastmod>` a W3C Datetime, `<changefreq>` and `<priority>` within their
+  ranges, and the 50,000-entry limit. There is no XML parser and no schema
+  validator here, so four rules are deliberately left unchecked — the 50 MB size
+  limit, an index listing another index, duplicate entries, and whether a
+  `<lastmod>` is true. [`docs/adr/0019`](docs/adr/0019-sitemap-rules-without-a-schema-validator.md)
+  lists them and says why. The rules are checked against what was read, so a
+  sitemap past the read limit is judged on the entries before the cut and the
+  report says it was truncated — nodejs.org's stray entries on another host sit
+  past it, and are not reported.
 - **A page nested thousands of levels deep is refused, not audited.** HTML
   parsing costs roughly the square of the nesting depth, so a document built to
   be absurd would block the server for minutes. `seo_audit` measures the depth
