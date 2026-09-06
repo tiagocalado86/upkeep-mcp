@@ -26,7 +26,7 @@ Structured content:
   "domain": "example.com",
   "unicodeDomain": null,
   "registrableDomain": "example.com",
-  "checkedAt": "2026-09-06T17:27:00.259Z",
+  "checkedAt": "2026-09-06T17:45:01.589Z",
   "severity": "info",
   "findings": [
     {

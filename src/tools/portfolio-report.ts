@@ -2,7 +2,7 @@ import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { mapWithConcurrency } from '../lib/concurrency.js';
 import { CERT_EXPIRY_WARNING_DAYS } from '../lib/defaults.js';
-import type { RunSnapshot } from '../lib/history.js';
+import { historyStoreFor, type HistoryStore, type RunSnapshot } from '../lib/history.js';
 import {
   CHECK_NAMES,
   IMPLEMENTED_CHECKS,
@@ -174,10 +174,26 @@ const outputSchema = z.object({
       comparedWithPreviousRun: z
         .boolean()
         .describe(
-          'False when this server process has not run a report before, in which case nothing ' +
-            'can be said about what changed — history is kept in memory only.',
+          'False when there was no usable previous run, in which case nothing can be said about ' +
+            'what changed. Read "previousRunUnavailable" for why.',
         ),
       previousRunAt: z.iso.datetime().nullable().describe('When the previous run happened.'),
+      previousRunUnavailable: z
+        .string()
+        .nullable()
+        .describe(
+          'Why there was no previous run to compare against, e.g. "there is no history file at ' +
+            '/Users/you/upkeep-history.json yet, so this run creates one". Null when there was ' +
+            'one — including when there was one and no site turned out comparable, which the ' +
+            'counts below explain instead.',
+        ),
+      historyKeptIn: z
+        .string()
+        .describe(
+          'Where this portfolio\'s history is kept: the path of the history file, or "memory" ' +
+            'when the portfolio names none. Memory is the default and is lost on restart; a ' +
+            'portfolio file may add a "history" path to compare across restarts.',
+        ),
       sitesCompared: z
         .int()
         .describe(
@@ -252,8 +268,13 @@ export async function runPortfolioReport(input: Input, ports: Ports): Promise<Ca
   }
 
   const ranked = [...results].sort(compareUrgency);
-  const changes = compareWithPrevious(ranked, ports);
-  ports.history.record(snapshotOf(ranked, now));
+  // Where this portfolio's history lives is the portfolio's own decision, read
+  // out of the file being reported on. Without a `history` path it is this
+  // process's memory, and nothing is written.
+  const store = historyStoreFor(loaded.file, loaded.history);
+  const changes = await compareWithPrevious(ranked, ports, store, now);
+  const recorded = await ports.history.record(store, snapshotOf(ranked, now));
+  if (recorded.reason !== null) notes.push(`${recorded.reason}.`);
 
   const report = {
     generatedAt: now.toISOString(),
@@ -308,10 +329,13 @@ export function registerPortfolioReportTool(
         'A site that cannot be checked is reported as a finding, never as a failure of the whole',
         'report. Only a portfolio that cannot be read at all is an error.',
         '',
-        'What changed since the previous run is compared in memory, so it is available only while',
-        'this server process keeps running, and the report says when it has nothing to compare',
-        'against rather than implying nothing changed. Only sites that both runs measured the same',
-        'way are compared, so a quick uptime-only pass never invents regressions in the run after it.',
+        'What changed since the previous run is compared against one recorded snapshot. By default',
+        'that snapshot lives in memory and is lost when this server restarts; a portfolio file may',
+        'add a "history" path, and then the snapshot is written there and comparisons survive a',
+        'restart for up to 90 days. Nothing is written unless the portfolio asks for it. Either way',
+        'the report says what it had to compare against, and why it had nothing when it had nothing,',
+        'rather than implying nothing changed. Only sites that both runs measured the same way are',
+        'compared, so a quick uptime-only pass never invents regressions in the run after it.',
       ].join('\n'),
       inputSchema,
       outputSchema,
@@ -504,13 +528,19 @@ async function loadSites(
   input: Input,
   ports: Ports,
 ): Promise<
-  | { ok: true; sites: Site[]; source: 'inline' | 'file'; file: string | null }
+  | {
+      ok: true;
+      sites: Site[];
+      source: 'inline' | 'file';
+      file: string | null;
+      history: string | null;
+    }
   | { ok: false; code: 'invalid_input' | 'not_found'; reason: string }
 > {
   if (input.sites !== undefined) {
     const parsed = readPortfolio({ version: 1, sites: input.sites });
     return parsed.ok
-      ? { ok: true, sites: parsed.sites, source: 'inline', file: null }
+      ? { ok: true, sites: parsed.sites, source: 'inline', file: null, history: null }
       : { ok: false, code: 'invalid_input', reason: parsed.reason };
   }
 
@@ -538,7 +568,7 @@ async function loadSites(
 
   const parsed = readPortfolioText(text);
   return parsed.ok
-    ? { ok: true, sites: parsed.sites, source: 'file', file }
+    ? { ok: true, sites: parsed.sites, source: 'file', file, history: parsed.history }
     : { ok: false, code: 'invalid_input', reason: `${file}: ${parsed.reason}` };
 }
 
@@ -650,6 +680,8 @@ function countSeverities(sites: readonly SiteResult[]): Record<Severity, number>
 interface Changes {
   comparedWithPreviousRun: boolean;
   previousRunAt: string | null;
+  previousRunUnavailable: string | null;
+  historyKeptIn: string;
   sitesCompared: number;
   sitesMeasuredDifferently: number;
   sitesNewSincePreviousRun: number;
@@ -668,12 +700,19 @@ interface Changes {
  *   regressions must not be readable as "nothing regressed".
  * @throws Never.
  */
-function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Changes {
-  const previous = ports.history.previous();
-  if (previous === null) {
+async function compareWithPrevious(
+  sites: readonly SiteResult[],
+  ports: Ports,
+  store: HistoryStore,
+  now: Date,
+): Promise<Changes> {
+  const previous = await ports.history.previous(store, now);
+  if (previous.snapshot === null) {
     return {
       comparedWithPreviousRun: false,
       previousRunAt: null,
+      previousRunUnavailable: previous.unavailableReason,
+      historyKeptIn: store.kind === 'file' ? store.path : 'memory',
       sitesCompared: 0,
       sitesMeasuredDifferently: 0,
       sitesNewSincePreviousRun: 0,
@@ -682,6 +721,7 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
       newFindings: [],
     };
   }
+  const snapshot = previous.snapshot;
 
   const regressed: Changes['regressed'] = [];
   const improved: Changes['improved'] = [];
@@ -693,7 +733,7 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
   let sitesNewSincePreviousRun = 0;
 
   for (const site of sites) {
-    const before = previous.sites[keyOf(site)];
+    const before = snapshot.sites[keyOf(site)];
     if (before === undefined) {
       sitesNewSincePreviousRun += 1;
       continue;
@@ -724,7 +764,12 @@ function compareWithPrevious(sites: readonly SiteResult[], ports: Ports): Change
     // A previous run this one shares no site with is a previous run that cannot
     // be compared against, whatever its timestamp says.
     comparedWithPreviousRun: sitesCompared > 0,
-    previousRunAt: sitesCompared > 0 ? previous.takenAt : null,
+    previousRunAt: sitesCompared > 0 ? snapshot.takenAt : null,
+    // Null even when nothing turned out comparable: there *was* a previous run,
+    // and the counters below say why it did not help. Conflating "no baseline"
+    // with "a baseline that did not apply" is how a reader stops trusting both.
+    previousRunUnavailable: null,
+    historyKeptIn: store.kind === 'file' ? store.path : 'memory',
     sitesCompared,
     sitesMeasuredDifferently,
     sitesNewSincePreviousRun,
@@ -878,8 +923,15 @@ function summarise(report: {
   if (!changes.comparedWithPreviousRun) {
     lines.push(
       '',
-      'Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.',
+      changes.previousRunUnavailable === null
+        ? 'Nothing comparable in the recorded run, so no change is reported. A run is comparable only against one that measured the same sites the same way.'
+        : `No change is reported: ${changes.previousRunUnavailable}.`,
     );
+    if (changes.historyKeptIn === 'memory') {
+      lines.push(
+        'History for this portfolio is kept in memory only. To compare across restarts, add a "history" path to the portfolio file.',
+      );
+    }
   } else {
     const compared = comparability(report.siteCount, changes);
     if (

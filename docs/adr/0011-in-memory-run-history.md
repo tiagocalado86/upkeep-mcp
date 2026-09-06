@@ -1,6 +1,9 @@
 # 11. Keep the previous run in memory, and nowhere else
 
-Status: accepted (2026-08-31)
+Status: accepted (2026-08-31). Still the default, and still the whole behaviour
+when a portfolio names no history file — but its "nothing is written to disk" is
+now conditional: [`0018`](0018-opt-in-history-file.md) added the opt-in this ADR
+asked for in its last line.
 
 ## Context
 
@@ -25,13 +28,18 @@ process. Compare against it when it exists. Say plainly when it does not.
 ## Consequences
 
 - Nothing is written to disk. There is still nothing to leak from a compromise
-  of this server beyond what its user handed it.
+  of this server beyond what its user handed it. **Amended by
+  [`0018`](0018-opt-in-history-file.md):** a portfolio file may now name a
+  `history` path, and then one snapshot is written there. Absent that line this
+  consequence holds exactly as written.
 - Comparison works within a session — which is the case that matters, because a
   portfolio owner runs the report, fixes something, and runs it again.
 - A restarted server has nothing to compare against. The output says so
   explicitly (`comparedWithPreviousRun: false`), and the text summary says it in
   words, because an empty list of regressions must never be readable as "nothing
-  regressed".
+  regressed". **Amended by [`0018`](0018-opt-in-history-file.md):** with a
+  `history` path the comparison survives a restart for ninety days, and the
+  report says which of the two situations it is in.
 - A snapshot records which checks it measured, per site, and a comparison is
   made only where both runs measured the same things. Two runs that looked at
   different checks are not comparable at all, and saying otherwise turns the
@@ -48,4 +56,5 @@ process. Compare against it when it exists. Say plainly when it does not.
   which is the same failure as an empty list of regressions reading as "nothing
   regressed".
 - If persistence is ever wanted, it belongs behind the same `RunHistory`
-  interface, opted into by the user, and it needs its own ADR.
+  interface, opted into by the user, and it needs its own ADR. **That happened:**
+  [`0018`](0018-opt-in-history-file.md), on exactly those three terms.

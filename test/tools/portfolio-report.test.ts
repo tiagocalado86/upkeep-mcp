@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createMemoryHistory, type RunHistory } from '../../src/lib/history.js';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  createDurableHistory,
+  createMemoryHistory,
+  type RunHistory,
+} from '../../src/lib/history.js';
 import { CHECK_NAMES, IMPLEMENTED_CHECKS, type CheckName } from '../../src/lib/portfolio.js';
 import type { Ports } from '../../src/lib/ports.js';
 import { EMPTY_ROBOTS } from '../../src/lib/robots.js';
@@ -35,7 +42,7 @@ function inDays(days: number): string {
  */
 function portfolioPorts(
   fixtures: Record<string, SiteFixture>,
-  options: { history?: RunHistory; files?: Record<string, string> } = {},
+  options: { history?: RunHistory; files?: Record<string, string>; durable?: boolean } = {},
 ): Ports {
   const forHost = (host: string): SiteFixture => fixtures[host.replace(/^www\./, '')] ?? {};
 
@@ -115,7 +122,9 @@ function portfolioPorts(
           : Promise.resolve(contents);
       },
     },
-    history: options.history ?? createMemoryHistory(),
+    history:
+      options.history ??
+      (options.durable === true ? createDurableHistory() : createMemoryHistory()),
     now: () => NOW,
   };
 }
@@ -342,11 +351,84 @@ describe('runPortfolioReport', () => {
     expect(structured(result)['changes']).toMatchObject({
       comparedWithPreviousRun: false,
       previousRunAt: null,
+      historyKeptIn: 'memory',
       sitesCompared: 0,
       regressed: [],
     });
-    // An empty list of regressions must never read as "nothing regressed".
-    expect(text(result)).toContain('Nothing comparable in this session yet');
+    // An empty list of regressions must never read as "nothing regressed", and
+    // the reason has to be the real one rather than a shape the reader has to
+    // guess at.
+    expect(text(result)).toContain('nothing survived the last restart');
+    expect(text(result)).toContain('add a "history" path to the portfolio file');
+  });
+
+  it('compares across restarts when the portfolio names a history file', async () => {
+    // The feature, end to end: two servers that share no memory, and the second
+    // one still knows what the first found.
+    const directory = await mkdtemp(join(tmpdir(), 'upkeep-report-'));
+    try {
+      const portfolio = join(directory, 'sites.json');
+      const file = {
+        version: 1,
+        history: 'upkeep-history.json',
+        sites: [
+          { name: 'Healthy Ltd', url: 'https://healthy.example' },
+          { name: 'Urgent Ltd', url: 'https://urgent.example' },
+        ],
+      };
+      const files = { [portfolio]: JSON.stringify(file) };
+
+      // Each call gets its own ports, so nothing is carried in memory between
+      // them: whatever the second run compares against came off the disk.
+      const first = await runPortfolioReport(
+        { file: portfolio },
+        portfolioPorts({ 'healthy.example': {}, 'urgent.example': {} }, { files, durable: true }),
+      );
+      expect(structured(first)['changes']).toMatchObject({
+        comparedWithPreviousRun: false,
+        historyKeptIn: join(directory, 'upkeep-history.json'),
+      });
+
+      const second = await runPortfolioReport(
+        { file: portfolio },
+        portfolioPorts(
+          { 'healthy.example': {}, 'urgent.example': { cert: 3 } },
+          { files, durable: true },
+        ),
+      );
+
+      const changes = structured(second)['changes'] as Record<string, unknown>;
+      expect(changes['comparedWithPreviousRun']).toBe(true);
+      expect(changes['sitesCompared']).toBe(2);
+      expect(changes['regressed']).toEqual([{ site: 'Urgent Ltd', from: 'ok', to: 'critical' }]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('writes nothing when the portfolio names no history file', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'upkeep-report-'));
+    try {
+      const portfolio = join(directory, 'sites.json');
+      const files = {
+        [portfolio]: JSON.stringify({
+          version: 1,
+          sites: [{ name: 'Healthy Ltd', url: 'https://healthy.example' }],
+        }),
+      };
+
+      await runPortfolioReport(
+        { file: portfolio },
+        portfolioPorts({ 'healthy.example': {} }, { files, durable: true }),
+      );
+
+      // The default has to stay the default: the portfolio itself is served
+      // from the fake file reader, so a directory that is still empty is a
+      // directory this server put nothing in.
+      expect(await readdir(directory)).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('does not invent regressions when the previous run measured different checks', async () => {

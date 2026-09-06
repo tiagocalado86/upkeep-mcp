@@ -85,6 +85,19 @@ export const TTL = {
    * asking the same host over and over.
    */
   robotsMs: 30 * 60_000,
+  /**
+   * How far back a recorded portfolio run may be and still be called "last
+   * time".
+   *
+   * A quarter, because the quarterly report is the unit this project is built
+   * around: two full runs a quarter apart is the comparison a retainer actually
+   * produces, and anything inside that window is a baseline worth having.
+   * Beyond it the comparison stops meaning anything — every certificate has
+   * renewed twice by then, so "improved since March" in a weekly review is
+   * noise dressed as information. An expired baseline is reported with its date
+   * and its age rather than silently ignored.
+   */
+  historyMs: 90 * 24 * 60 * 60_000,
 } as const;
 
 /** Politeness limits applied to every outbound request. */

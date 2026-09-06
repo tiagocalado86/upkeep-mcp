@@ -120,7 +120,10 @@ never fails a build.
 
 ## What is deliberately absent
 
-No database and no cache file (`docs/adr/0005`). No WHOIS (`docs/adr/0004`). No
+No database and no cache file (`docs/adr/0005`). Nothing written to disk except
+one portfolio run snapshot, and only where a portfolio file named a path for it
+(`docs/adr/0018`); left unnamed, the comparison lives in memory and dies with the
+process (`docs/adr/0011`). No WHOIS (`docs/adr/0004`). No
 certificate revocation lists — revocation is checked over OCSP and only over
 OCSP, so a certificate whose issuer publishes no responder is reported as
 unchecked with the reason rather than judged from a multi-megabyte file this tool

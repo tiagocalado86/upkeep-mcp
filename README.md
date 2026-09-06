@@ -192,10 +192,29 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.
+No change is reported: this server has not run a report on this portfolio before,
+and the portfolio names no history file, so nothing survived the last restart.
+History for this portfolio is kept in memory only. To compare across restarts,
+add a "history" path to the portfolio file.
 
 Nothing to do: Example Foundation.
 ```
+
+**Comparing across restarts.** By default the previous run lives in this server
+process and nowhere else, so a client that restarts daily gets a comparison that
+never spans more than a day — and a quarter-over-quarter report cannot be
+produced from it at all. Add one line to the portfolio file:
+
+```json
+{ "version": 1, "history": "upkeep-history.json", "sites": [...] }
+```
+
+and the run is written there instead, beside the portfolio file itself. The next
+report compares against it however many restarts later, up to ninety days. The
+file names your clients and says which were broken, so it is created readable by
+your account alone and replaced on every run; without that line nothing is
+written at all.
+[`docs/adr/0018`](docs/adr/0018-opt-in-history-file.md) records the reasoning.
 
 Each site can set `maxLinks` — how many internal links the `seo` check may
 request, `0` for none. It is the setting that decides what a run costs: measured
@@ -328,7 +347,8 @@ information that any person with a browser or a DNS resolver could read.
 - `robots.txt` is respected on any page crawl, with per-host rate limiting and
   an identifiable `User-Agent` carrying a contact URL.
 - No persistent sensitive state. Caching is in memory only, with a TTL. There is
-  no database and nothing is written to disk.
+  no database. The one file this server ever writes is a portfolio run snapshot,
+  and only when a portfolio file names a `history` path for it.
 - The only third parties contacted are the ones that hold the answer: the
   registry's own RDAP server, IANA's RDAP bootstrap file, and
   `cloudflare-dns.com` for the one question `node:dns` cannot ask (whether a
@@ -380,12 +400,19 @@ that does less.
   accessibility statement.
 - **Nothing here judges how a page ranks.** `seo_audit` reports what is in the
   HTML. Rankings depend on things no public endpoint exposes.
-- **"What changed since last time" lasts as long as the server process.** The
-  previous run is held in memory and never written to disk, so a restarted
-  server has nothing to compare against — and says so, rather than implying
-  nothing changed. Only sites both runs measured the same way are compared, so a
-  quick uptime-only pass never invents regressions in the run after it.
-  [`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md) explains the trade.
+- **"What changed since last time" lasts as long as the server process, unless
+  you ask for otherwise.** By default the previous run is held in memory and
+  never written anywhere, so a restarted server — which for a desktop MCP client
+  is a daily event — has nothing to compare against, and says so rather than
+  implying nothing changed. Adding a `history` path to the portfolio file makes
+  the comparison survive a restart, for up to ninety days; nothing is written
+  without it. Only sites both runs measured the same way are compared, so a quick
+  uptime-only pass never invents regressions in the run after it.
+  [`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md) and
+  [`docs/adr/0018`](docs/adr/0018-opt-in-history-file.md) explain the trade.
+- **Only the previous run is kept, never a series.** Each run replaces the last.
+  A trend over quarters is a different feature with a different storage question,
+  and it has not been asked for.
 - **Certificates and domains are judged on different clocks.** A registration is
   a warning inside 30 days; a certificate only inside 14. ACME clients renew with
   30 days left, so warning that early would fire on nearly every healthy site.

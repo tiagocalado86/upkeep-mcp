@@ -9,7 +9,7 @@ Call:
 Text returned to the conversation:
 
 ```
-http://github.com/ answered 200 in 99ms.
+http://github.com/ answered 200 in 125ms.
 Ends at https://github.com/ after 2 requests.
 HSTS: max-age=31536000.
 
@@ -23,7 +23,7 @@ Structured content:
 {
   "url": "http://github.com/",
   "finalUrl": "https://github.com/",
-  "checkedAt": "2026-09-06T17:27:01.589Z",
+  "checkedAt": "2026-09-06T17:45:03.154Z",
   "severity": "info",
   "findings": [
     {
@@ -34,20 +34,20 @@ Structured content:
   ],
   "reachable": true,
   "status": 200,
-  "responseTimeMs": 99,
+  "responseTimeMs": 125,
   "redirects": {
     "hops": [
       {
         "url": "http://github.com/",
         "status": 301,
         "location": "https://github.com/",
-        "elapsedMs": 99
+        "elapsedMs": 125
       },
       {
         "url": "https://github.com/",
         "status": 200,
         "location": null,
-        "elapsedMs": 151
+        "elapsedMs": 168
       }
     ],
     "truncated": false,

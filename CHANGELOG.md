@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`portfolio_report` can compare across restarts.** The previous run was kept
+  in memory and nowhere else, which `docs/adr/0011` chose deliberately and for a
+  good reason: a history file says which client sites were broken and when, and
+  it is not something this server should put on someone's disk unasked. What that
+  decision cost in practice turned out to be larger than it looked. A server
+  started by a desktop client restarts whenever the client does, which for most
+  people is daily, so "what changed since last time" answered "since you last
+  opened this app" — and the quarterly report, the thing this whole project is
+  arranged around, could not be produced from it at all.
+
+  `docs/adr/0011` closed by naming the way out, and this is it: one line in the
+  portfolio file.
+
+  ```json
+  { "version": 1, "history": "upkeep-history.json", "sites": [...] }
+  ```
+
+  The path is resolved beside the portfolio file rather than against the working
+  directory, because a desktop client starts this server in `/` and "beside my
+  sites.json" is the only reading anyone intends. One snapshot is written there,
+  replaced on every run, created readable by the owner alone — the file names a
+  person's clients and says which were broken, and a default umask would hand
+  that to every other account on a shared machine. Without that line nothing is
+  written at all, and the behaviour is exactly what it was.
+
+  A baseline older than ninety days is refused rather than used. A quarter is the
+  unit this project reports in, and past it the comparison stops meaning
+  anything: every certificate has renewed twice, so "improved since March" in a
+  weekly review is noise dressed as information. The refusal names the date and
+  the age.
+
+  Nothing here can fail a report. A history file that is missing, unreadable, or
+  written by somebody else produces a sentence explaining which of those it is
+  and a comparison against nothing; a file that cannot be written produces a note
+  in the report. A run that found an expired certificate is worth having even
+  when it cannot be filed, and the report now always says where its history is
+  kept and why it had nothing to compare against when it had nothing — the field
+  is `previousRunUnavailable`, and it exists because an empty list of regressions
+  must never read as "nothing regressed".
+
+  Still one snapshot and not a series. A trend over quarters remains a different
+  feature with a different storage question, exactly as `docs/adr/0011` said.
+  [`docs/adr/0018`](docs/adr/0018-opt-in-history-file.md) records what was
+  decided and what was turned down — a state directory, an environment variable,
+  a tool argument.
+
+  The structural test that asserted "nothing in `src` writes to disk" now asserts
+  that exactly one module does and that it writes only where its caller said, so
+  a second writer or a default path fails the suite.
+
 - **`ssl_check` checks whether a certificate has been revoked.** It was the
   largest hole in the tool and the one the README named first: Node performs no
   revocation lookup of any kind, so a certificate withdrawn an hour ago still

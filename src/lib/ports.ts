@@ -26,7 +26,7 @@ import {
   type TargetGuard,
   type WebProtocol,
 } from './public-target.js';
-import { createMemoryHistory, type RunHistory } from './history.js';
+import { createDurableHistory, type RunHistory } from './history.js';
 import { createHostLimiter } from './rate-limit.js';
 import { fetchRobots, type RobotsFetch } from './robots.js';
 import { lookupDomain, type RdapLookup } from './rdap.js';
@@ -151,7 +151,10 @@ function sharedState(): NonNullable<typeof shared> {
     tlsCache: createTtlCache<TlsInspection>({ ttlMs: TTL.tlsMs }),
     ocspCache: createTtlCache<RevocationReport>({ ttlMs: TTL.ocspMs }),
     robotsCache: createTtlCache<RobotsFetch>({ ttlMs: TTL.robotsMs }),
-    history: createMemoryHistory(),
+    // Durable only where a portfolio asked for it: a store of `memory` — which
+    // is what every portfolio that does not name a history file resolves to —
+    // is held in memory exactly as before, and writes nothing.
+    history: createDurableHistory(),
     limiter: createHostLimiter({
       minIntervalMs: LIMITS.minIntervalMs,
       maxConcurrentPerHost: LIMITS.maxConcurrentPerHost,

@@ -49,15 +49,32 @@ describe('nothing handles credentials', () => {
       expect(/x-api-key/i.test(text), `${path} sets an api key header`).toBe(false);
     }
   });
+});
 
-  it('never writes to disk', () => {
-    // Principle 5: no persistent state. The server reads a portfolio file the
-    // user wrote; it creates nothing.
-    for (const { path, text } of sources) {
-      expect(/writeFile|appendFile|createWriteStream|mkdir/.test(text), `${path} writes`).toBe(
-        false,
-      );
-    }
+describe('nothing is written to disk unasked', () => {
+  it('confines every write to the run history', () => {
+    // Principle 5 allows local-file state with a TTL, and `docs/adr/0018`
+    // spends the whole of that allowance on one file: the run history, at a
+    // path the user named in their own portfolio. The rule that keeps it there
+    // is structural — exactly one module in `src` may write anything at all, so
+    // a second one cannot appear without this failing.
+    const writers = sources
+      .filter(({ text }) => /writeFile|appendFile|createWriteStream|mkdir/.test(code(text)))
+      .map(({ path }) => path);
+
+    expect(writers).toEqual(['src/lib/history.ts']);
+  });
+
+  it('writes only where the caller said, never to a path of its own', () => {
+    // The regression this guards against is a default path: a history file that
+    // appears in someone's home directory because the code knew a good place to
+    // put one. The destination is always the store the caller resolved from the
+    // portfolio, and a portfolio that named none resolves to memory.
+    const history = readFileSync('src/lib/history.ts', 'utf8');
+
+    expect(/writeFile\(\s*store\.path/.test(history), 'history writes to a path of its own').toBe(
+      true,
+    );
   });
 });
 

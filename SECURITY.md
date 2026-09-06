@@ -80,8 +80,15 @@ crawl, requests are rate-limited per host, concurrency is bounded, every network
 operation has an explicit timeout, and the `User-Agent` identifies the tool with
 a contact URL.
 
-**It keeps no sensitive state.** Caching is in memory only, with a TTL, and so
-is the comparison with the previous run. Nothing is written to disk: there is no
+**It writes one file, and only if you ask for one.** Caching is in memory only,
+with a TTL, and so is the comparison with the previous run — unless your
+portfolio file names a `history` path, in which case one snapshot of the last
+run is written there and nowhere else. That file records which of your sites were
+at which severity and the finding codes behind it, so it names your clients; it
+is created readable by your account alone, replaced on every run, and ignored
+once it is older than ninety days. Leave the line out and nothing is written at
+all. See
+[`docs/adr/0018`](docs/adr/0018-opt-in-history-file.md). Beyond that there is no
 database, and no record of what was checked survives the process. See
 [`docs/adr/0005`](docs/adr/0005-in-memory-cache-no-database.md) and
 [`docs/adr/0011`](docs/adr/0011-in-memory-run-history.md).

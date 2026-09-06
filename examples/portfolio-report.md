@@ -17,7 +17,8 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.
+No change is reported: this server has not run a report on this portfolio before, and the portfolio names no history file, so nothing survived the last restart.
+History for this portfolio is kept in memory only. To compare across restarts, add a "history" path to the portfolio file.
 
 Nothing to do: Example Foundation.
 ```
@@ -26,7 +27,7 @@ Structured content:
 
 ```json
 {
-  "generatedAt": "2026-09-06T17:27:03.274Z",
+  "generatedAt": "2026-09-06T17:45:04.877Z",
   "source": "inline",
   "file": null,
   "siteCount": 3,
@@ -75,6 +76,8 @@ Structured content:
   "changes": {
     "comparedWithPreviousRun": false,
     "previousRunAt": null,
+    "previousRunUnavailable": "this server has not run a report on this portfolio before, and the portfolio names no history file, so nothing survived the last restart",
+    "historyKeptIn": "memory",
     "sitesCompared": 0,
     "sitesMeasuredDifferently": 0,
     "sitesNewSincePreviousRun": 0,
@@ -143,7 +146,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.com/ answered 200 in 22ms.",
+          "headline": "https://example.com/ answered 200 in 27ms.",
           "error": null
         }
       ]
@@ -187,7 +190,7 @@ Structured content:
           "check": "uptime",
           "ran": true,
           "severity": "warning",
-          "headline": "https://example.net/ answered 200 in 53ms.",
+          "headline": "https://example.net/ answered 200 in 129ms.",
           "error": null
         }
       ]

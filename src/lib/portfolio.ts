@@ -8,8 +8,10 @@ import { normaliseUrl } from './url.js';
  * in, and the only place a site's own thresholds are configured.
  *
  * The file holds names, URLs and notes — no credentials, and nothing that is
- * not already public. It is read, never written: this server does not manage
- * the list, it reads the one its user keeps.
+ * not already public. It is read, never written: this server does not manage the
+ * list, it reads the one its user keeps. Its one `history` field points at a
+ * *different* file, which the server does write, and which exists only because
+ * the user named it.
  */
 
 /** Every check a portfolio entry may ask for. */
@@ -45,6 +47,13 @@ const siteSchema = z.object({
 
 const fileSchema = z.object({
   version: z.literal(1),
+  history: z
+    .string()
+    .min(1)
+    .refine((path) => path.toLowerCase().endsWith('.json'), {
+      message: 'must be a path to a .json file',
+    })
+    .optional(),
   defaults: z
     .object({
       checks: z.array(checkSchema).optional(),
@@ -85,7 +94,23 @@ export interface Site {
 }
 
 /** What a portfolio file turned into. */
-export type PortfolioResult = { ok: true; sites: Site[] } | { ok: false; reason: string };
+export type PortfolioResult =
+  | {
+      ok: true;
+      sites: Site[];
+      /**
+       * Where the user asked for their run history to be kept, or `null` when
+       * they did not ask.
+       *
+       * Relative to the portfolio file's own directory, and resolved by
+       * `historyStoreFor`. This is the whole opt-in: without this line the
+       * server writes nothing, which is the state
+       * `docs/adr/0011-in-memory-run-history.md` chose and
+       * `docs/adr/0018-opt-in-history-file.md` kept as the default.
+       */
+      history: string | null;
+    }
+  | { ok: false; reason: string };
 
 /**
  * Validates a parsed portfolio file and applies its defaults.
@@ -119,7 +144,7 @@ export function readPortfolio(raw: unknown): PortfolioResult {
     sites.push(site.site);
   }
 
-  return { ok: true, sites };
+  return { ok: true, sites, history: parsed.data.history ?? null };
 }
 
 /**

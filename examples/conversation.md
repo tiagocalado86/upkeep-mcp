@@ -56,7 +56,8 @@ Needs action:
 - [warning] Example Net: Plain HTTP does not redirect to HTTPS.
 - [warning] Example Net: No Strict-Transport-Security header is sent.
 
-Nothing comparable in this session yet, so no change is reported. A run is comparable only against one that measured the same sites the same way.
+No change is reported: this server has not run a report on this portfolio before, and the portfolio names no history file, so nothing survived the last restart.
+History for this portfolio is kept in memory only. To compare across restarts, add a "history" path to the portfolio file.
 
 Nothing to do: Example Foundation.
 ```
@@ -218,6 +219,11 @@ that quietly omits Legacy Shop would read better and be worse.
 - A site that cannot be checked is a finding, not a failed report. Legacy Shop's
   uptime check could not run, and the report says so instead of reporting the
   site as fine or giving up on the other four.
+- The comparison starts from nothing here because this portfolio names no
+  history file, so the previous run lived in memory and did not survive the last
+  restart. Adding `"history": "upkeep-history.json"` to the portfolio file is
+  what makes a quarter-over-quarter comparison possible; the report says which
+  of the two it is doing every time.
 - The comparison against the previous run refuses to compare unlike runs, says
   how many sites it could compare, why the rest were left out, and what to do
   about it. See
