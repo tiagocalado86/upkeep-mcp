@@ -11,7 +11,7 @@ import {
 } from '../lib/robots.js';
 import { findingSchema, severitySchema } from '../lib/schemas.js';
 import { finding, sortFindings, worstSeverity } from '../lib/severity.js';
-import { readSitemap, type SitemapReading } from '../lib/sitemap.js';
+import { decodeSitemapBody, readSitemap, type SitemapReading } from '../lib/sitemap.js';
 import { buildFailure, fail, failureFrom, guard, headlineOf, succeed } from '../lib/tool-result.js';
 import { normaliseUrl } from '../lib/url.js';
 import { SERVER_NAME } from '../lib/constants.js';
@@ -169,6 +169,13 @@ const outputSchema = z.object({
         .describe(
           'Whether the sitemap was longer than the read limit and was cut off, in which case ' +
             'entryCount is a floor rather than a total.',
+        ),
+      compressed: z
+        .boolean()
+        .describe(
+          'Whether it was served gzipped, as a "sitemap.xml.gz". The sitemaps protocol allows ' +
+            'this and large sites use it; the file is unpacked before it is read, so every other ' +
+            'field here means the same thing either way.',
         ),
       sampleEntries: z.array(z.string()).describe('The first few entries, for recognition.'),
       problem: z.string().nullable().describe('Why it is unusable, in plain words.'),
@@ -484,6 +491,8 @@ interface SitemapReport extends SitemapReading {
   found: boolean;
   /** Whether the document was cut off at the read limit, making entryCount a floor. */
   truncated: boolean;
+  /** Whether it was served gzipped, as a `sitemap.xml.gz`, and unpacked before reading. */
+  compressed: boolean;
   /**
    * Whether nothing was served at all, as opposed to something unusable being
    * served. A site with no sitemap has a gap; a site serving a broken one has a
@@ -534,13 +543,21 @@ async function checkSitemap(
         kind: 'unknown',
         entryCount: 0,
         sampleEntries: [],
+        compressed: false,
         problem: `the sitemap is on ${new URL(url).host}, whose robots.txt does not allow this crawler to read it`,
       };
     }
   }
 
   try {
-    const response = await ports.http.text(url, TIMEOUTS.supportFileMs, LIMITS.maxSupportFileBytes);
+    // Bytes rather than text: `sitemap.xml.gz` is a gzip file, and the sitemaps
+    // protocol has always allowed it. Decoding those bytes as UTF-8 reported a
+    // perfectly good sitemap as having no root element.
+    const response = await ports.http.bytes(
+      url,
+      TIMEOUTS.supportFileMs,
+      LIMITS.maxSupportFileBytes,
+    );
 
     if (response.status >= 400) {
       return {
@@ -548,6 +565,7 @@ async function checkSitemap(
         found: false,
         missing: true,
         truncated: false,
+        compressed: false,
         kind: 'unknown',
         entryCount: 0,
         sampleEntries: [],
@@ -555,12 +573,30 @@ async function checkSitemap(
       };
     }
 
-    const reading = readSitemap(response.body, response.truncated);
+    const decoded = await decodeSitemapBody(response.body, response.truncated);
+    if (decoded.problem !== null) {
+      // Something was served and it is not readable. That is a defect in the
+      // sitemap, not an absent one, so `missing` stays false.
+      return {
+        url,
+        found: false,
+        missing: false,
+        truncated: response.truncated,
+        compressed: decoded.compressed,
+        kind: 'unknown',
+        entryCount: 0,
+        sampleEntries: [],
+        problem: decoded.problem,
+      };
+    }
+
+    const reading = readSitemap(decoded.body, response.truncated);
     return {
       url,
       found: reading.problem === null,
       missing: false,
       truncated: response.truncated,
+      compressed: decoded.compressed,
       ...reading,
     };
   } catch (cause) {
@@ -569,6 +605,7 @@ async function checkSitemap(
       found: false,
       missing: true,
       truncated: false,
+      compressed: false,
       kind: 'unknown',
       entryCount: 0,
       sampleEntries: [],
@@ -920,6 +957,7 @@ function blocked(
       found: false,
       missing: false,
       truncated: false,
+      compressed: false,
       kind: 'unknown' as const,
       entryCount: 0,
       sampleEntries: [],

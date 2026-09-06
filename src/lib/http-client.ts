@@ -43,6 +43,8 @@ export interface TextResult {
 
 /** A binary response, read up to a byte limit. */
 export interface BytesResult {
+  /** The URL the response finally came from, after any redirects. */
+  url: string;
   /** HTTP status code. */
   status: number;
   /** The `Content-Type` header with any parameters stripped, lowercased. */
@@ -317,6 +319,62 @@ export async function postForBytes(
   }
 
   return {
+    // Redirects are refused above, so the URL that answered is the one asked for.
+    url,
+    status: response.status,
+    contentType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? null,
+    body: bytes,
+    truncated,
+  };
+}
+
+/**
+ * Fetches a document as bytes, following redirects, and stops reading at a limit.
+ *
+ * The counterpart to {@link getText} for a document that is not text until
+ * something has been done to it. A sitemap is the case in hand: `sitemap.xml.gz`
+ * is a gzip *file*, not a gzip-encoded response, so nothing in the HTTP stack
+ * unpacks it and decoding those bytes as UTF-8 produces a page of replacement
+ * characters that no sitemap parser can make sense of.
+ *
+ * @param url Absolute URL to request.
+ * @param timeoutMs Deadline for the whole request, reading included.
+ * @param maxBytes Most bytes to read before giving up on the rest.
+ * @param accept Value for the `Accept` header.
+ * @returns The final URL, status, content type and as much of the body as was
+ *   read.
+ * @throws {CheckError} `timeout` when the deadline passes, `network` otherwise.
+ */
+export async function getBytes(
+  url: string,
+  timeoutMs: number,
+  maxBytes: number,
+  accept = 'application/xml,text/xml,application/gzip,*/*;q=0.8',
+): Promise<BytesResult> {
+  const deadline = AbortSignal.timeout(timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: deadline,
+      headers: { 'user-agent': USER_AGENT, accept },
+    });
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  }
+
+  let bytes: Uint8Array;
+  let truncated: boolean;
+  try {
+    ({ bytes, truncated } = await readCappedBytes(response, maxBytes));
+  } catch (cause) {
+    throw asCheckError(cause, url, timeoutMs);
+  }
+
+  return {
+    url: response.url === '' ? url : response.url,
     status: response.status,
     contentType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? null,
     body: bytes,

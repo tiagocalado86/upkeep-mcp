@@ -174,10 +174,23 @@ export interface FakeOptions {
     string,
     { status: number; headers?: Record<string, string>; location?: string } | Error
   >;
-  /** Bodies returned by `http.text`, keyed by URL. */
+  /**
+   * Bodies returned by `http.text` and `http.bytes`, keyed by URL.
+   *
+   * `body` covers everything textual. `bytes` is for a document that is not
+   * text as served — a gzipped sitemap — and wins over `body` on the `bytes`
+   * port; without it the body is served as its UTF-8 encoding.
+   */
   documents?: Record<
     string,
-    | { status: number; body: string; contentType?: string; url?: string; truncated?: boolean }
+    | {
+        status: number;
+        body: string;
+        bytes?: Uint8Array;
+        contentType?: string;
+        url?: string;
+        truncated?: boolean;
+      }
     | Error
   >;
   /**
@@ -258,6 +271,19 @@ export function fakePorts(options: FakeOptions = {}): Ports {
           headers: new Headers({ 'content-type': contentType }),
           contentType,
           body: reply.body,
+          truncated: reply.truncated ?? false,
+        });
+      },
+      bytes: (url) => {
+        const reply = options.documents?.[url];
+        if (reply === undefined) return Promise.reject(new Error(`no fixture for ${url}`));
+        if (reply instanceof Error) return Promise.reject(reply);
+        const contentType = reply.contentType ?? 'text/html';
+        return Promise.resolve({
+          url: reply.url ?? url,
+          status: reply.status,
+          contentType,
+          body: reply.bytes ?? new TextEncoder().encode(reply.body),
           truncated: reply.truncated ?? false,
         });
       },

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { CheckName } from '../../src/lib/portfolio.js';
 import { runAxe, type AxeRun } from '../../src/lib/axe.js';
 import { CheckError } from '../../src/lib/errors.js';
+import { LIMITS, TIMEOUTS } from '../../src/lib/defaults.js';
 import { createDefaultPorts } from '../../src/lib/ports.js';
+import { decodeSitemapBody, readSitemap } from '../../src/lib/sitemap.js';
 import { runDomainCheck } from '../../src/tools/domain-check.js';
 import { runAccessibilityAudit } from '../../src/tools/accessibility-audit.js';
 import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
@@ -209,6 +211,25 @@ describe('seo_audit against a real page', () => {
     expect(structured(result)).toMatchObject({ fetched: true, status: 200 });
     expect(structured(result)['page']).toMatchObject({ title: 'Example Domain' });
     expect(findingCodes(result)).toContain('meta_description_missing');
+  });
+
+  it('reads a sitemap whose name says gzip and whose bytes do not', async () => {
+    // A real trap avoided. This URL ends in `.xml.gz`, is declared as the
+    // sitemap in that host's robots.txt, and is served as plain `text/xml`:
+    // the extension lies. Keying the decision on the name, or on the content
+    // type, would try to unpack XML and report a working sitemap as broken.
+    // The first two bytes of a gzip member are the only thing here that is not
+    // a matter of opinion, so they are what decides.
+    const response = await ports.http.bytes(
+      'https://www.nytimes.com/sitemaps/new/news.xml.gz',
+      TIMEOUTS.supportFileMs,
+      LIMITS.maxSupportFileBytes,
+    );
+    const decoded = await decodeSitemapBody(response.body, response.truncated);
+
+    expect(decoded.compressed).toBe(false);
+    expect(decoded.problem).toBeNull();
+    expect(readSitemap(decoded.body, response.truncated).kind).toBe('urlset');
   });
 
   it('obeys a robots.txt that forbids it, without requesting the page', async () => {

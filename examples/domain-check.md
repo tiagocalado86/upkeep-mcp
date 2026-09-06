@@ -26,7 +26,7 @@ Structured content:
   "domain": "example.com",
   "unicodeDomain": null,
   "registrableDomain": "example.com",
-  "checkedAt": "2026-09-06T17:45:01.589Z",
+  "checkedAt": "2026-09-06T17:56:58.582Z",
   "severity": "info",
   "findings": [
     {
@@ -55,12 +55,12 @@ Structured content:
     "apexResolves": true,
     "wwwResolves": true,
     "a": [
-      "172.66.147.243",
-      "104.20.23.154"
+      "104.20.23.154",
+      "172.66.147.243"
     ],
     "aaaa": [
-      "2606:4700:10::6814:179a",
-      "2606:4700:10::ac42:93f3"
+      "2606:4700:10::ac42:93f3",
+      "2606:4700:10::6814:179a"
     ],
     "ns": [
       "elliott.ns.cloudflare.com",

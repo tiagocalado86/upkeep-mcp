@@ -13,9 +13,11 @@ import {
   type DnsResolver,
 } from './dns.js';
 import {
+  getBytes,
   getText,
   httpHop,
   postForBytes,
+  type BytesResult,
   type HttpHopResult,
   type TextResult,
 } from './http-client.js';
@@ -76,6 +78,15 @@ export interface HttpProbe {
   hop(url: string, timeoutMs: number, signal?: AbortSignal): Promise<HttpHopResult>;
   /** A whole document, following redirects, read up to a byte limit. */
   text(url: string, timeoutMs: number, maxBytes: number): Promise<TextResult>;
+  /**
+   * A whole document as bytes, following redirects, read up to a byte limit.
+   *
+   * For a document that is not text until something has been done to it. A
+   * `sitemap.xml.gz` is a gzip file rather than a gzip-encoded response, so
+   * nothing in the HTTP stack unpacks it and decoding it as text yields
+   * nonsense.
+   */
+  bytes(url: string, timeoutMs: number, maxBytes: number): Promise<BytesResult>;
 }
 
 /** Auditing a rendered page in a real browser. */
@@ -613,6 +624,16 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
         );
         // `getText` follows redirects, so the URL that was checked and the URL
         // that answered are not necessarily the same host.
+        await assertReachable(guard, new URL(result.url));
+        return result;
+      },
+      bytes: async (url, timeoutMs, maxBytes) => {
+        await assertReachable(guard, new URL(url));
+        const result = await limiter.run(new URL(url).host, () =>
+          getBytes(url, timeoutMs, maxBytes),
+        );
+        // Redirects are followed here too, so where it ended is checked as well
+        // as where it was sent.
         await assertReachable(guard, new URL(result.url));
         return result;
       },

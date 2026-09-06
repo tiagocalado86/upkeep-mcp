@@ -151,6 +151,11 @@ canonical, `lang`, viewport, Open Graph, `hreflang` alternates, the images with
 no `alt` attribute, the state of `robots.txt` and the sitemap, and which
 internal links are broken.
 
+A gzipped sitemap is unpacked before it is read. Whether it is gzipped is decided
+by the first two bytes rather than by the file name or the content type, because
+plenty of files called `.xml.gz` are not, and plenty that are get labelled
+`text/xml`.
+
 `robots.txt` is read **before** anything else is requested and is obeyed — for
 the page itself and for every internal link. A page this crawler is not allowed
 to read is reported as such and is never fetched, and an unreadable `robots.txt`
@@ -387,9 +392,11 @@ that does less.
   links to find broken ones, but it does not crawl: there is no second level.
   Auditing a site means calling it for the pages that matter.
 - **The sitemap check is structural, not a schema validation.** It establishes
-  that the document exists, declares `<urlset>` or `<sitemapindex>`, and how
-  many `<loc>` entries it holds. It does not validate against the sitemaps.org
-  schema, and it does not open a gzipped sitemap.
+  that the document exists, declares `<urlset>` or `<sitemapindex>`, how many
+  `<loc>` entries it holds, and whether it arrived gzipped — a `sitemap.xml.gz`
+  is unpacked before it is read, capped at 16 MiB so that a decompression bomb
+  is refused rather than unpacked. It does not validate against the sitemaps.org
+  schema.
 - **A page nested thousands of levels deep is refused, not audited.** HTML
   parsing costs roughly the square of the nesting depth, so a document built to
   be absurd would block the server for minutes. `seo_audit` measures the depth

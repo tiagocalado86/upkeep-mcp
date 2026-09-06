@@ -27,7 +27,7 @@ Structured content:
 {
   "url": "https://example.com/",
   "finalUrl": "https://example.com/",
-  "checkedAt": "2026-09-06T17:45:03.829Z",
+  "checkedAt": "2026-09-06T17:57:00.630Z",
   "severity": "warning",
   "findings": [
     {
@@ -101,6 +101,7 @@ Structured content:
     "found": false,
     "missing": true,
     "truncated": false,
+    "compressed": false,
     "kind": "unknown",
     "entryCount": 0,
     "sampleEntries": [],

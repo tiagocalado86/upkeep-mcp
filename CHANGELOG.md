@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`seo_audit` reads a gzipped sitemap.** A `sitemap.xml.gz` is a gzip _file_,
+  not a gzip-encoded response: it arrives with `Content-Type: application/gzip`
+  and no `Content-Encoding`, so nothing in the HTTP stack unpacks it. Decoding
+  those bytes as UTF-8 produced a page of replacement characters, and the check
+  then reported a perfectly good sitemap as having no `<urlset>` root element —
+  a broken sitemap where there was none, on a form the sitemaps protocol has
+  always allowed and large sites use.
+
+  The magic bytes decide, not the file name and not the content type. That is
+  not fastidiousness: the New York Times declares
+  `https://www.nytimes.com/sitemaps/new/news.xml.gz` in its `robots.txt` and
+  serves it as plain `text/xml`, so keying on the extension would have unpacked
+  XML and called a working sitemap broken. The first two bytes of a gzip member
+  are the only thing here that is not a matter of opinion. An integration test
+  pins that case.
+
+  Unpacking is bounded twice. The compressed read was already capped at half a
+  mebibyte; the unpacked size is now capped at sixteen, which is roughly thirty
+  times that and comfortably past a full 50,000-URL sitemap at about ten
+  megabytes of XML. Beyond it the document is refused with the reason, because a
+  decompressor that trusts its input is the classic way to be handed a bomb.
+
+  A gzip stream the read limit cut short still yields what decompressed cleanly,
+  so an oversized sitemap gives a floor count rather than an error — the same
+  contract the uncompressed path already had. One that unpacks to nothing at all
+  says so in those words, rather than being passed on as an empty document and
+  reported as having no root element, which of a gzipped file is true only in
+  the least useful sense. Either way something was served and it is unreadable,
+  so it is graded as a defect rather than as an absent sitemap.
+
 - **`portfolio_report` can compare across restarts.** The previous run was kept
   in memory and nowhere else, which `docs/adr/0011` chose deliberately and for a
   good reason: a history file says which client sites were broken and when, and

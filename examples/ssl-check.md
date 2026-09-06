@@ -27,7 +27,7 @@ Structured content:
 {
   "host": "expired.badssl.com",
   "port": 443,
-  "checkedAt": "2026-09-06T17:45:01.836Z",
+  "checkedAt": "2026-09-06T17:56:58.822Z",
   "severity": "critical",
   "findings": [
     {
@@ -119,7 +119,7 @@ Structured content:
 {
   "host": "revoked.grc.com",
   "port": 443,
-  "checkedAt": "2026-09-06T17:45:02.442Z",
+  "checkedAt": "2026-09-06T17:56:59.240Z",
   "severity": "critical",
   "findings": [
     {

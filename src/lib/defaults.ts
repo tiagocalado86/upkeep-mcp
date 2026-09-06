@@ -142,6 +142,17 @@ export const LIMITS = {
   /** Bytes of a `robots.txt` or sitemap read before the rest is abandoned. */
   maxSupportFileBytes: 512 * 1024,
   /**
+   * Bytes a gzipped sitemap may unpack to before it is refused.
+   *
+   * The compressed read is already capped at `maxSupportFileBytes`, so this is
+   * the second half of the same bound: without it, half a mebibyte of gzip can
+   * expand to hundreds of mebibytes, and a decompressor that trusts its input
+   * is the classic way to be handed one. Sixteen mebibytes is roughly thirty
+   * times the compressed cap and comfortably past a full 50,000-URL sitemap,
+   * which is about ten megabytes of XML; anything beyond it is not a sitemap.
+   */
+  maxSitemapUnpackedBytes: 16 * 1024 * 1024,
+  /**
    * Internal links whose status is checked on one audit.
    *
    * Every check is one request, paced by the per-host limiter, so this is the

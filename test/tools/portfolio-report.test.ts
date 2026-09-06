@@ -100,6 +100,7 @@ function portfolioPorts(
         }
         return Promise.resolve({ url, status, headers, location: null, elapsedMs: 5 });
       },
+      bytes: () => Promise.reject(new Error('no document fixtures in this portfolio')),
       text: () => Promise.reject(new Error('no document fixture')),
     },
     robots: {

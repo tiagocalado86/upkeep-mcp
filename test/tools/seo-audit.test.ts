@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { CheckError } from '../../src/lib/errors.js';
 import { runSeoAudit } from '../../src/tools/seo-audit.js';
@@ -294,6 +295,59 @@ describe('runSeoAudit', () => {
     );
 
     expect(structured(result)['sitemap']).toMatchObject({ url: declared, entryCount: 2 });
+  });
+
+  it('reads a gzipped sitemap, which large sites serve and the protocol allows', async () => {
+    // Before this, the bytes of a `.xml.gz` decoded to replacement characters
+    // and the check reported a perfectly good sitemap as having no <urlset>
+    // root element — a broken sitemap where there was none.
+    const declared = 'https://example.com/sitemap.xml.gz';
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [declared]: {
+            status: 200,
+            body: '',
+            bytes: new Uint8Array(gzipSync(Buffer.from(SITEMAP))),
+            contentType: 'application/gzip',
+          },
+        },
+        robots: `User-agent: *\nSitemap: ${declared}`,
+      }),
+    );
+
+    expect(structured(result)['sitemap']).toMatchObject({
+      url: declared,
+      found: true,
+      compressed: true,
+      kind: 'urlset',
+      entryCount: 2,
+    });
+    expect(findingCodes(result)).not.toContain('sitemap_unusable');
+  });
+
+  it('calls a gzipped sitemap that will not unpack broken, not absent', async () => {
+    // Something was served and it is unreadable. That is a defect in the
+    // sitemap, which is graded above a site that simply has none.
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [SITEMAP_URL]: {
+            status: 200,
+            body: '',
+            bytes: Uint8Array.from([0x1f, 0x8b, 0x08, 0, 9, 9, 9]),
+          },
+        },
+        robots: 'User-agent: *',
+      }),
+    );
+
+    expect(structured(result)['sitemap']).toMatchObject({ compressed: true, missing: false });
+    expect(findingCodes(result)).toContain('sitemap_unusable');
   });
 
   it('recognises a 404 page served with a 200 status in place of a sitemap', async () => {

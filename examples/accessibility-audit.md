@@ -26,7 +26,7 @@ Structured content:
 {
   "url": "https://www.w3.org/WAI/demos/bad/before/home.html",
   "finalUrl": "https://www.w3.org/WAI/demos/bad/before/home.html",
-  "checkedAt": "2026-09-06T17:45:06.378Z",
+  "checkedAt": "2026-09-06T17:57:03.181Z",
   "severity": "critical",
   "findings": [
     {
