@@ -82,6 +82,13 @@ const outputSchema = z.object({
       skippedByRobots: z
         .int()
         .describe('URLs found and not requested because robots.txt forbids this crawler.'),
+      leftTheOrigin: z
+        .int()
+        .describe(
+          'URLs that redirected to another host. They are not recorded as pages of this site and ' +
+            'their links are not followed: robots.txt was read for the origin the crawl started ' +
+            'on, and it does not speak for anybody else.',
+        ),
       notVisited: z
         .int()
         .describe(
@@ -229,6 +236,7 @@ async function buildReport(input: Input, ports: Ports) {
         pagesFetched: outcome.pages.length,
         deepestLevel: outcome.pages.reduce((deepest, page) => Math.max(deepest, page.depth), 0),
         skippedByRobots: outcome.skippedByRobots,
+        leftTheOrigin: outcome.leftTheOrigin,
         notVisited: outcome.notVisited,
         stoppedBecause: outcome.stoppedBecause,
       },
@@ -247,6 +255,7 @@ interface CrawlOutcome {
   pages: CrawledPage[];
   broken: BrokenLink[];
   skippedByRobots: number;
+  leftTheOrigin: number;
   notVisited: number;
   stoppedBecause: StopReason;
 }
@@ -273,6 +282,11 @@ async function crawl(
   robots: RobotsFetch,
   ports: Ports,
 ): Promise<CrawlOutcome> {
+  // Taken once, from where the crawl was told to start. Every later decision —
+  // which links to follow, which pages belong to this site — is made against
+  // this and never against the origin of the page in hand, which a redirect can
+  // change out from under the crawl.
+  const origin = start.origin;
   const maxPages = input.maxPages ?? LIMITS.maxPagesCrawled;
   const maxDepth = input.maxDepth ?? LIMITS.maxCrawlDepth;
   const deadline = Date.now() + TIMEOUTS.crawlMs;
@@ -284,9 +298,12 @@ async function crawl(
 
   let skippedByRobots = 0;
   let stoppedBecause: StopReason = 'nothing left to visit';
-  // Whether anything was left unqueued because of the depth limit, which is a
-  // different sentence from "the page budget ran out" and reads as one.
-  let depthLimited = false;
+  let leftTheOrigin = 0;
+  // Links dropped at the depth boundary. Counted rather than flagged: a page at
+  // the limit whose every link has already been visited has left nothing
+  // unseen, and reporting "stopped at the depth limit with 0 URLs not visited"
+  // is a sentence that contradicts itself.
+  let unvisitedBeyondDepth = 0;
 
   while (queue.length > 0) {
     if (pages.length >= maxPages) {
@@ -309,7 +326,7 @@ async function crawl(
       continue;
     }
 
-    const visited = await visit(next, ports);
+    const visited = await visit(next, origin, ports);
 
     if (visited.broken !== null) {
       broken.push(visited.broken);
@@ -317,11 +334,29 @@ async function crawl(
     }
     if (visited.page === null) continue;
 
+    // A redirect that lands on another host has left the site. The page is not
+    // recorded and its links are not followed: `robots.txt` was fetched for the
+    // origin this crawl started on, and reading another host under those rules
+    // would be reading it under no rules at all.
+    if (new URL(visited.page.url).origin !== origin) {
+      leftTheOrigin += 1;
+      continue;
+    }
+
+    const landedOn = canonicalise(new URL(visited.page.url));
+    // Two addresses that redirect to one page are one page. Without this,
+    // `/a` and `/a/` both fetch `/a/` and the pair is reported as two pages
+    // competing for the same title — which is the tool's headline finding, made
+    // up out of a trailing slash.
+    if (seen.has(landedOn) && landedOn !== canonicalise(new URL(next.url))) continue;
+    seen.add(landedOn);
+
     pages.push(visited.page);
-    seen.add(canonicalise(new URL(visited.page.url)));
 
     if (visited.page.depth >= maxDepth) {
-      if (visited.links.length > 0) depthLimited = true;
+      unvisitedBeyondDepth += visited.links.filter(
+        (href) => !seen.has(canonicalise(new URL(href))),
+      ).length;
       continue;
     }
 
@@ -337,9 +372,12 @@ async function crawl(
     pages,
     broken,
     skippedByRobots,
-    notVisited: queue.length,
+    leftTheOrigin,
+    notVisited: queue.length + unvisitedBeyondDepth,
     stoppedBecause:
-      stoppedBecause === 'nothing left to visit' && depthLimited ? 'depth limit' : stoppedBecause,
+      stoppedBecause === 'nothing left to visit' && unvisitedBeyondDepth > 0
+        ? 'depth limit'
+        : stoppedBecause,
   };
 }
 
@@ -347,6 +385,9 @@ async function crawl(
  * Fetches one page and reads what a crawl needs from it.
  *
  * @param queued The URL and where it was found.
+ * @param origin The origin the crawl started on, which is the only one whose
+ *   `robots.txt` was read and therefore the only one whose links may be
+ *   followed.
  * @param ports The I/O boundary.
  * @returns The page, or the broken link it turned out to be, and the internal
  *   links to follow from it.
@@ -354,6 +395,7 @@ async function crawl(
  */
 async function visit(
   queued: Queued,
+  origin: string,
   ports: Ports,
 ): Promise<{ page: CrawledPage | null; broken: BrokenLink | null; links: string[] }> {
   const document = await ports.http
@@ -407,18 +449,21 @@ async function visit(
       noindex: content !== null && (content.metaRobots ?? '').includes('noindex'),
       isHtml,
     },
-    links: content === null ? [] : internalLinks(content, document.url),
+    links: content === null ? [] : internalLinks(content, origin),
   };
 }
 
 /**
- * @param content The page's extracted content.
- * @param pageUrl The page it came from, which relative links resolve against.
- * @returns Every link on the same origin, deduplicated, fragments dropped.
+ * @param content The page's extracted content, whose links are already resolved
+ *   against the page they were found on.
+ * @param origin The origin the crawl started on. Taken from the crawl and never
+ *   from the page: a page reached through a redirect to another host would
+ *   otherwise hand the crawl a new origin to walk, under the `robots.txt` of the
+ *   origin it started from — which is to say under nobody's rules.
+ * @returns Every link on that origin, deduplicated, fragments dropped.
  * @throws Never.
  */
-function internalLinks(content: PageContent, pageUrl: string): string[] {
-  const origin = new URL(pageUrl).origin;
+function internalLinks(content: PageContent, origin: string): string[] {
   const found = new Set<string>();
 
   for (const link of content.links) {
@@ -622,6 +667,19 @@ function collectFindings(outcome: CrawlOutcome, origin: string): Finding[] {
         'info',
         `${String(outcome.skippedByRobots)} URLs were found and not requested, because ` +
           'robots.txt forbids this crawler from reading them.',
+      ),
+    );
+  }
+
+  if (outcome.leftTheOrigin > 0) {
+    findings.push(
+      finding(
+        'links_redirect_off_the_site',
+        'info',
+        `${count(outcome.leftTheOrigin, 'internal link')} redirected to another host, so ` +
+          `${outcome.leftTheOrigin === 1 ? 'it was' : 'they were'} not crawled: robots.txt was ` +
+          'read for this origin and does not speak for anybody else. Worth knowing about — a ' +
+          'link that leaves the site without meaning to is a link that leaks its visitors.',
       ),
     );
   }

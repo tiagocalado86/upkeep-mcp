@@ -31,11 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   how many URLs were found and not visited, because a report that does not say
   it saw a quarter of the site is worse than no report.
 
-  One origin, never two: `example.com` and `www.example.com` are different
-  origins, and a crawl that followed links between them would report one site's
-  pages as duplicates of the other's — true, and useless. A URL is remembered
-  without its fragment, because a fragment never reaches the server, so
-  `/about`, `/about#team` and `/about` again are one request.
+  One origin, never two, and it is the origin the crawl was told to start on
+  rather than the origin of the page in hand: `example.com` and
+  `www.example.com` are different origins, and a crawl that followed links
+  between them would report one site's pages as duplicates of the other's —
+  true, and useless. A page whose final URL leaves the origin is counted and its
+  links are not followed, because `robots.txt` was read for one origin and does
+  not speak for anybody else. A URL is remembered without its fragment, because a
+  fragment never reaches the server, so `/about`, `/about#team` and `/about`
+  again are one request — and two addresses that redirect to one page are one
+  page, so a `/a` and `/a/` pair is not reported as two pages competing for the
+  same title.
 
   Sequential rather than parallel, which costs nothing: the per-host limiter
   already serialises requests to one origin at one every half second, so
@@ -108,7 +114,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Bounded like everything else: at most eight nameservers, in parallel, on a
   five-second deadline each, through the same per-host limiter, cached for as
-  long as any other DNS answer. `checkNameservers: false` turns it off. The
+  long as any other DNS answer. `checkNameservers: false` turns it off, and
+  `portfolio_report` passes exactly that: a portfolio would pay up to eight TCP
+  connections per site, and a deployment whose egress blocks port 53 would grade
+  every site `unknown` at once — which outranks `info` and would reorder the one
+  report whose job is to say what needs doing first. The
   parent's delegation is deliberately not compared with the zone's own — that is
   a second hop and a different feature —
   [`docs/adr/0020`](docs/adr/0020-asking-the-nameservers-over-tcp.md) records

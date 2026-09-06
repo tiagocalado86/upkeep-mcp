@@ -340,6 +340,98 @@ describe('runSiteCrawl', () => {
     expect(structured(result)['severity']).toBe('warning');
   });
 
+  it("does not follow a redirect onto another host, under this host's robots.txt", async () => {
+    // Found in review. The crawl took its origin from the page in hand rather
+    // than from where it was told to start, so one redirect handed it a whole
+    // new host to walk — under the robots.txt of the origin it started from,
+    // which is to say under nobody's rules. That is principle 4, broken.
+    const result = await runSiteCrawl(
+      { url: HOME },
+      fakePorts({
+        robots: 'User-agent: *\nDisallow: /secret',
+        documents: {
+          [HOME]: {
+            status: 200,
+            body: page({ links: ['/hop'] }),
+          },
+          'https://example.com/hop': {
+            status: 200,
+            body: page({ title: 'Elsewhere', links: ['/other', '/secret'] }),
+            url: 'https://elsewhere.test/',
+          },
+          // No fixture for anything on elsewhere.test: a request there rejects,
+          // so this asserts none was made rather than merely not reported.
+        },
+      }),
+    );
+
+    expect(pages(result).map((visited) => visited.url)).toEqual([HOME]);
+    expect(crawl(result)).toMatchObject({ leftTheOrigin: 1 });
+    expect(findingCodes(result)).toContain('links_redirect_off_the_site');
+  });
+
+  it('counts two addresses that redirect to one page as one page', async () => {
+    // Found in review. /a and /a/ both land on /a/, and reporting them as two
+    // pages made the tool's headline finding — pages competing for one title —
+    // out of a trailing slash.
+    const landing = { status: 200, body: page({ title: 'A' }), url: 'https://example.com/a/' };
+    const result = await runSiteCrawl(
+      { url: HOME },
+      fakePorts({
+        robots: '',
+        documents: {
+          [HOME]: { status: 200, body: page({ title: 'Home', links: ['/a', '/a/'] }) },
+          'https://example.com/a': landing,
+          'https://example.com/a/': landing,
+        },
+      }),
+    );
+
+    expect(pages(result)).toHaveLength(2);
+    expect(structured(result)['duplicates']).toMatchObject({ titles: [] });
+    expect(findingCodes(result)).not.toContain('duplicate_titles');
+  });
+
+  it('does not claim a depth limit when the whole site was crawled', async () => {
+    // Found in review. Every leaf linking back to the homepage set the depth
+    // flag, and the report then said it had stopped at the depth limit with
+    // zero URLs not visited — a sentence that contradicts itself.
+    const result = await runSiteCrawl(
+      { url: HOME, maxDepth: 1 },
+      fakePorts({
+        robots: '',
+        documents: {
+          [HOME]: { status: 200, body: page({ title: 'Home', links: ['/a'] }) },
+          'https://example.com/a': { status: 200, body: page({ title: 'A', links: ['/'] }) },
+        },
+      }),
+    );
+
+    expect(crawl(result)).toMatchObject({
+      stoppedBecause: 'nothing left to visit',
+      notVisited: 0,
+    });
+    expect(findingCodes(result)).not.toContain('crawl_incomplete');
+  });
+
+  it('counts the links it dropped at the depth limit', async () => {
+    const result = await runSiteCrawl(
+      { url: HOME, maxDepth: 1 },
+      fakePorts({
+        robots: '',
+        documents: {
+          [HOME]: { status: 200, body: page({ title: 'Home', links: ['/a'] }) },
+          'https://example.com/a': {
+            status: 200,
+            body: page({ title: 'A', links: ['/deep', '/deeper'] }),
+          },
+        },
+      }),
+    );
+
+    expect(crawl(result)).toMatchObject({ stoppedBecause: 'depth limit', notVisited: 2 });
+  });
+
   it('refuses a URL that is not one', async () => {
     const result = await runSiteCrawl({ url: 'not a url' }, fakePorts({}));
 

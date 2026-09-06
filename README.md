@@ -125,7 +125,10 @@ perfectly. Different serials are `info` too — `github.com` runs two providers
 that do not transfer between them, so four of its nameservers report
 `1656468023` and four report `1`, and nothing is wrong. A hostname that does not
 resolve, or an answer without authority for the zone, is broken for everybody
-and is a warning. Pass `checkNameservers: false` to skip the whole thing.
+and is a warning. Pass `checkNameservers: false` to skip the whole thing —
+`portfolio_report` does, because a portfolio would pay this per site and a
+deployment that cannot open port 53 would grade every site at once as
+unestablished.
 [`docs/adr/0020`](docs/adr/0020-asking-the-nameservers-over-tcp.md) records why
 it speaks DNS by hand and what it deliberately does not check.
 
@@ -219,9 +222,11 @@ internal links are broken and, crucially, which page links to them; which pages
 still ask not to be indexed after a rebuild; and how much of the site was
 reachable at all.
 
-It stays on one origin — `https://example.com` and `https://www.example.com` are
-different origins, and a crawl that wandered between them would report one
-site's pages as duplicates of the other's.
+It stays on the origin you start it on — `https://example.com` and
+`https://www.example.com` are different origins, and a crawl that wandered
+between them would report one site's pages as duplicates of the other's. A link
+that redirects off the site is counted and left alone: `robots.txt` was read for
+this origin and does not speak for anybody else.
 
 Three budgets bound it: pages, depth, and a two-minute deadline. Whichever one
 ended the crawl is reported along with how many URLs were found and not visited,

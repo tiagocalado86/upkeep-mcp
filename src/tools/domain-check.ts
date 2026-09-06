@@ -389,7 +389,14 @@ export async function checkDomainForPortfolio(
   ports: Ports,
   warnDays: number,
 ): Promise<CheckOutcome> {
-  const outcome = await buildReport({ domain }, ports, warnDays);
+  // The nameservers are not asked here, and that is deliberate on two counts.
+  // A portfolio pays this per site — up to eight TCP connections each, on their
+  // own deadlines — which is the same argument that keeps `site_crawl` out of a
+  // portfolio run. And a deployment whose egress does not allow TCP port 53
+  // would report `unknown` for every site at once, which outranks `info` and
+  // would reorder a report whose whole job is to say what needs doing first.
+  // A domain worth looking at gets `domain_check` called on it directly.
+  const outcome = await buildReport({ domain, checkNameservers: false }, ports, warnDays);
   if (!outcome.ok) return outcome;
 
   return {
@@ -875,9 +882,13 @@ function describeAgreement(check: NameserverCheck): string {
   if (authoritative.length === 0) return ' (none of them could be asked directly)';
 
   const counted = `${String(authoritative.length)} of ${String(check.answers.length)} answered`;
-  const serial = check.serials[0];
+  const [serial] = check.serials;
 
-  return check.agree && serial !== undefined
+  // No serial at all is its own sentence. An SOA too short to hold one reads
+  // back as `null`, and without this the summary ended on a dangling "serials ".
+  if (serial === undefined) return ` (${counted}, none of them with a readable serial)`;
+
+  return check.agree
     ? ` (${counted}, all on serial ${String(serial)})`
     : ` (${counted}, serials ${check.serials.map(String).join(' and ')})`;
 }

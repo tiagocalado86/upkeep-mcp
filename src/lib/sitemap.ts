@@ -35,8 +35,10 @@ export type SitemapDefectCode =
   | 'loc_missing'
   /** A `<loc>` that is not an absolute http or https URL. */
   | 'loc_not_absolute'
-  /** A `<loc>` carrying a character the protocol requires to be escaped. */
+  /** A `<loc>` carrying a bare `&`, which makes the document ill-formed XML. */
   | 'loc_unescaped'
+  /** A `<loc>` carrying a raw `>`, `"` or `'`, which the protocol escapes and parsers accept. */
+  | 'loc_escaping'
   /** A `<loc>` past the length the protocol allows. */
   | 'loc_too_long'
   /** A `<loc>` on a different host from the sitemap itself. */
@@ -366,8 +368,24 @@ const CHANGE_FREQUENCIES = new Set([
 const W3C_DATETIME =
   /^\d{4}(?:-\d{2}(?:-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?)?)?$/;
 
-/** The five characters the protocol requires a `<loc>` to escape. */
-const MUST_BE_ESCAPED = /[<>"']|&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i;
+/**
+ * A bare `&`, which is the one that makes the document ill-formed.
+ *
+ * `<` would too, and is deliberately not here: `readLocations` captures
+ * `[^<]*`, so a `<` can never reach this test — the value would already have
+ * ended at it.
+ */
+const BARE_AMPERSAND = /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i;
+
+/**
+ * The three characters the protocol requires escaped and no parser minds.
+ *
+ * `>`, `"` and `'` are legal in XML character data. The protocol asks for them
+ * as entities and a `<loc>` carrying one raw is out of spec, but nothing stops
+ * reading — so this is worth saying and is not worth a warning, which the first
+ * version of this check got wrong for every URL with an apostrophe in a slug.
+ */
+const COSMETIC_ESCAPES = /["'>]/;
 
 /**
  * Checks a sitemap against the rules of the protocol.
@@ -520,15 +538,20 @@ function checkEntry(
  * @throws Never.
  */
 function checkLocation(loc: string, sitemapHost: string | null, collector: DefectCollector): void {
-  // Checked before decoding, because this rule is about the bytes in the file:
-  // a bare `&` in a query string makes the document ill-formed XML, and a parser
-  // that stops there loses every entry after it.
-  if (MUST_BE_ESCAPED.test(loc)) {
+  // Checked before decoding, because this rule is about the bytes in the file.
+  if (BARE_AMPERSAND.test(loc)) {
     collector.add(
       'loc_unescaped',
       'warning',
       loc,
-      'A <loc> carries an unescaped &, <, >, " or \', which the protocol requires to be written as an entity. A strict XML parser stops at it and loses the rest of the file.',
+      'A <loc> carries a bare &, which the protocol requires written as &amp;. It makes the document ill-formed XML, and a parser that stops there loses every entry after it.',
+    );
+  } else if (COSMETIC_ESCAPES.test(loc)) {
+    collector.add(
+      'loc_escaping',
+      'info',
+      loc,
+      'A <loc> carries a raw >, " or \', which the protocol requires written as an entity. Those three are legal in XML character data, so nothing will fail to read the file; it is out of spec and costs nothing today.',
     );
   }
 

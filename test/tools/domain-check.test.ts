@@ -566,6 +566,25 @@ describe('runDomainCheck, asking the nameservers themselves', () => {
     expect(text(result)).toContain('1 on ns2.example.net');
   });
 
+  it('says so plainly when nothing answered with a readable serial', async () => {
+    // Found in review. An SOA too short to hold a serial reads back as null, and
+    // the summary then ended on a dangling "serials )".
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers({
+          'ns1.example.net': { serial: null },
+          'ns2.example.net': { serial: null },
+        }),
+      }),
+    );
+
+    expect(text(result)).toContain('none of them with a readable serial');
+    expect(text(result)).not.toContain('serials )');
+  });
+
   it('skips the whole thing when the caller asks it to', async () => {
     const result = await runDomainCheck(
       { domain: 'example.com', checkNameservers: false },

@@ -71,6 +71,12 @@ still the whole list of what may be opened.
 - One question, to at most eight nameservers, in parallel, on a five-second
   deadline, through the same per-host limiter as everything else, cached for as
   long as any other DNS answer. `checkNameservers: false` turns it off.
+- **`portfolio_report` does not ask**, on two counts. It would pay up to eight
+  TCP connections per site, which is the same argument that keeps `site_crawl`
+  out of a portfolio run. And a deployment whose egress does not allow TCP port
+  53 would report `unknown` for every site at once — a severity that outranks
+  `info` and would reorder the one report whose whole job is to say what needs
+  doing first. A domain worth looking at gets `domain_check` called on it.
 - **The parent's delegation is deliberately not compared.** "The NS records at
   the registrar differ from the NS records in the zone" is the other classic
   delegation fault, and answering it means querying the parent zone's servers

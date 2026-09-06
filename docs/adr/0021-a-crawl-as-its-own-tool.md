@@ -47,9 +47,19 @@ one list.
   one origin, so concurrency would buy queueing rather than speed — and a
   parallel crawl overshoots its page budget by however many requests were in
   flight when the last one landed.
-- **One origin, never two.** `example.com` and `www.example.com` are different
-  origins; a crawl that followed links between them would report one site's
-  pages as duplicates of the other's, which is true and useless.
+- **One origin, never two**, and the origin is the one the crawl was told to
+  start on rather than the one of the page in hand. `example.com` and
+  `www.example.com` are different origins; a crawl that followed links between
+  them would report one site's pages as duplicates of the other's, which is true
+  and useless. Taking the origin from the page in hand was worse than that and
+  was caught in review: one redirect off the site handed the crawl a new host to
+  walk under the `robots.txt` of the origin it started from, which is to say
+  under nobody's rules. A page whose final URL left the origin is now counted,
+  not recorded, and its links are not followed.
+- **Two addresses that redirect to one page are one page.** `/a` and `/a/` are
+  ordinary on real sites, and counting them separately produced the tool's
+  headline finding — two pages competing for one title — out of a trailing
+  slash. Also caught in review.
 - A URL is remembered without its fragment, because a fragment never reaches the
   server: `/about`, `/about#team` and `/about` again are one request.
 - What it still does not do: JavaScript is not executed, so a site that renders

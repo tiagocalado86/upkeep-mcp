@@ -254,6 +254,21 @@ describe('readSitemap, against the rules of the protocol', () => {
     expect(reading.defects[0]).toMatchObject({ code: 'loc_unescaped', severity: 'warning' });
   });
 
+  it('grades a raw apostrophe below a bare ampersand, because parsers accept it', () => {
+    // Found in review. Only & and < make XML ill-formed; > " and ' are legal in
+    // character data. Warning about an apostrophe in a slug — ordinary — with
+    // "a parser stops at it" was a claim that was simply not true.
+    const withApostrophe = readSitemap(
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+         <url><loc>https://example.com/l'histoire</loc></url>
+       </urlset>`,
+      false,
+    );
+
+    expect(withApostrophe.defects[0]).toMatchObject({ code: 'loc_escaping', severity: 'info' });
+    expect(withApostrophe.defects[0]?.detail).toContain('nothing will fail to read the file');
+  });
+
   it('does not mistake a properly escaped ampersand for an unescaped one', () => {
     // `&amp;` in a query string is the normal case, not an oddity.
     expect(readSitemap(URLSET, false).defects).toEqual([]);

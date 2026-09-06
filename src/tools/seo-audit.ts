@@ -636,9 +636,11 @@ async function checkSitemap(
       };
     }
 
-    // The URL it was served from decides whether an entry is on another host,
-    // so the reader is told where the document came from.
-    const reading = readSitemap(decoded.body, response.truncated, url);
+    // The URL it was *served* from, not the one that was asked for. A sitemap
+    // redirecting from example.com to www.example.com is ordinary, and judging
+    // its entries against the address before the redirect reported every one of
+    // them as belonging to another host.
+    const reading = readSitemap(decoded.body, response.truncated, response.url);
     return {
       url,
       found: reading.problem === null,

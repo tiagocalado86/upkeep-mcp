@@ -325,6 +325,31 @@ describe('runSeoAudit', () => {
     expect(structured(result)['sitemap']).toMatchObject({ found: true, entryCount: 1 });
   });
 
+  it('judges sitemap entries against the host that served the sitemap, not the one asked', async () => {
+    // Found in review. example.com/sitemap.xml redirecting to www is ordinary,
+    // and judging its entries against the address before the redirect reported
+    // every single one of them as belonging to another host.
+    const result = await runSeoAudit(
+      { url: PAGE_URL },
+      fakePorts({
+        documents: {
+          [PAGE_URL]: { status: 200, body: healthyHtml() },
+          [SITEMAP_URL]: {
+            status: 200,
+            contentType: 'application/xml',
+            url: 'https://www.example.com/sitemap.xml',
+            body: `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>https://www.example.com/</loc></url>
+            </urlset>`,
+          },
+        },
+        robots: 'User-agent: *',
+      }),
+    );
+
+    expect(findingCodes(result)).not.toContain('sitemap_loc_other_host');
+  });
+
   it('says how many entries break a rule, not once per entry', async () => {
     const urls = Array.from(
       { length: 12 },

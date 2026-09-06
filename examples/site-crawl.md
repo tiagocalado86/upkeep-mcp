@@ -24,7 +24,7 @@ Structured content:
 {
   "startUrl": "https://www.sitemaps.org/",
   "origin": "https://www.sitemaps.org",
-  "checkedAt": "2026-09-06T23:44:17.553Z",
+  "checkedAt": "2026-09-06T23:57:23.955Z",
   "severity": "warning",
   "findings": [
     {
@@ -47,6 +47,7 @@ Structured content:
     "pagesFetched": 5,
     "deepestLevel": 2,
     "skippedByRobots": 0,
+    "leftTheOrigin": 0,
     "notVisited": 0,
     "stoppedBecause": "nothing left to visit"
   },
