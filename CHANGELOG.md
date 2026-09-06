@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The release workflow waits ten minutes for npm, not two and a half.** The
+  registry job checks that npm is serving the version before it lists it,
+  because the registry validates a listing against the package. v0.5.0 outlasted
+  that window: the publish succeeded, the wait failed, and the listing had to be
+  recovered by re-running the job — which is exactly the recovery the two-job
+  split exists for, but it is a manual step in a release that is otherwise wired
+  to the tag. The loop still leaves the moment npm answers, so a normal release
+  is no slower.
+
 ## [0.5.0] - 2026-09-06
 
 ### Added

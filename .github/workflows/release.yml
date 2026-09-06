@@ -86,11 +86,19 @@ jobs:
       # The registry verifies the listing against the npm package before it will
       # accept it, and a just-published version takes a moment to be readable.
       # Waiting turns a race into a delay.
+      #
+      # Ten minutes, because the first window here was 150 seconds and v0.5.0
+      # exceeded it: the publish succeeded, this step failed, and the listing had
+      # to be recovered by hand. Propagation is usually well under a minute, and
+      # the loop leaves the moment npm answers — so the ceiling costs nothing on
+      # a normal release and only has to be generous enough to outlast a slow
+      # one. Failing here still means npm has the version and the registry does
+      # not, which is the state this job exists to avoid.
       - name: npm is serving the version being listed
         run: |
           name="$(node -p "require('./package.json').name")"
           version="${GITHUB_REF_NAME#v}"
-          for attempt in $(seq 1 10); do
+          for attempt in $(seq 1 40); do
             if [ "$(npm view "$name@$version" name 2>/dev/null)" = "$name" ]; then
               exit 0
             fi
