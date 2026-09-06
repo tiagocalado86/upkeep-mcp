@@ -48,6 +48,15 @@ export const TIMEOUTS = {
   /** Fetching `robots.txt` or a sitemap, which are small and should be quick. */
   supportFileMs: 8_000,
   /**
+   * One question to one authoritative nameserver, over TCP.
+   *
+   * Longer than a resolver query because it is a TCP connection to a server on
+   * the other side of the world rather than a UDP round trip to one down the
+   * street, and shorter than an HTTP hop because a nameserver that takes five
+   * seconds to answer its own SOA is itself the finding.
+   */
+  nameserverMs: 5_000,
+  /**
    * Launching a browser, loading a page and running axe over it.
    *
    * Far longer than any other deadline here, and it has to be: a cold browser
@@ -152,6 +161,16 @@ export const LIMITS = {
    * which is about ten megabytes of XML; anything beyond it is not a sitemap.
    */
   maxSitemapUnpackedBytes: 16 * 1024 * 1024,
+  /**
+   * Nameservers asked directly about a zone.
+   *
+   * Eight is past what any delegation needs — RFC 1034 suggests two or three,
+   * and the largest hosts publish four — and it is a bound on a zone that
+   * publishes a hundred of them, which is a cheap way to make one check cost a
+   * hundred connections. Which ones were left out is reported rather than
+   * silently dropped.
+   */
+  maxNameserversQueried: 8,
   /**
    * Internal links whose status is checked on one audit.
    *

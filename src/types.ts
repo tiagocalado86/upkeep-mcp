@@ -173,6 +173,64 @@ export interface DnsRecords {
 }
 
 /**
+ * What came of asking one nameserver about the zone it is listed for.
+ *
+ * The distinction that matters is between a fault of the delegation and a fact
+ * about this one query. A resolver reaches a nameserver over UDP and falls back
+ * to TCP; this server can only use TCP, because UDP to arbitrary hosts does not
+ * leave every platform it is deployed to. So a nameserver that refuses TCP is
+ * not a broken nameserver — plenty serve UDP only, in defiance of RFC 7766 and
+ * with no visible consequence — while one whose name does not resolve, or that
+ * answers without authority, is broken for everybody.
+ */
+export type NameserverOutcome =
+  /** It answered with authority for the zone, which is what should happen. */
+  | 'authoritative'
+  /** It answered, but not with authority for the zone: a lame delegation. */
+  | 'lame'
+  /** Its hostname does not resolve, so no resolver can reach it either. */
+  | 'unresolvable'
+  /** It could not be asked over TCP port 53, which says nothing about UDP. */
+  | 'unreachable';
+
+/** What one authoritative nameserver said when asked about the zone directly. */
+export interface NameserverAnswer {
+  /** The nameserver's hostname, as the zone publishes it. */
+  host: string;
+  /** The address that was asked, or `null` when the name resolved to none. */
+  address: string | null;
+  /** What came of asking it. */
+  outcome: NameserverOutcome;
+  /** The zone's serial as this server holds it, or `null` when it did not say. */
+  serial: number | null;
+  /** Why it did not answer usefully, in plain words, or `null` when it did. */
+  problem: string | null;
+}
+
+/** What the zone's own nameservers said when each was asked directly. */
+export interface NameserverCheck {
+  /** Whether the nameservers were asked at all. */
+  checked: boolean;
+  /**
+   * Why they were not asked, or which of them were left out, in plain words.
+   * `null` when every published nameserver was asked.
+   */
+  unavailableReason: string | null;
+  /** One entry per nameserver asked, in the order the zone publishes them. */
+  answers: NameserverAnswer[];
+  /** The distinct serials seen, ascending. More than one means disagreement. */
+  serials: number[];
+  /**
+   * Whether every nameserver that answered holds the same version of the zone.
+   *
+   * `true` when nothing answered, because nothing was compared. Disagreement is
+   * not by itself a fault: a domain served by two providers that do not
+   * transfer between them has two independent serials by design.
+   */
+  agree: boolean;
+}
+
+/**
  * What a domain's SPF record says.
  *
  * SPF names the servers allowed to send mail as this domain. Absent, anyone may;

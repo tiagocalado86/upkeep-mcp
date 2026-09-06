@@ -190,6 +190,47 @@ describe('domain_check against real registries', () => {
   });
 });
 
+describe('domain_check asking real nameservers over TCP', () => {
+  it('gets the same zone serial from every nameserver of a healthy domain', async () => {
+    // Cloudflare's nameservers answer TCP and serve one zone from one place, so
+    // agreement is the expected answer. This is the case that has to keep
+    // working: everything else here is about not crying wolf.
+    const result = await runDomainCheck({ domain: 'example.com' }, ports);
+    const check = structured(result)['nameservers'] as {
+      checked: boolean;
+      agree: boolean;
+      serials: number[];
+      answers: { outcome: string }[];
+    };
+
+    expect(check.checked).toBe(true);
+    expect(check.answers.every((answer) => answer.outcome === 'authoritative')).toBe(true);
+    expect(check.serials).toHaveLength(1);
+    expect(check.agree).toBe(true);
+    expect(findingCodes(result)).not.toContain('nameservers_disagree');
+  });
+
+  it('does not call a domain broken because its nameservers refuse TCP', async () => {
+    // sapo.pt's four nameservers all answer UDP and refuse TCP, which RFC 7766
+    // forbids and no resolver notices — the domain resolves perfectly. The
+    // whole grading exists so that this reads as unestablished rather than as a
+    // fault, and it is the one case fixtures would never have surfaced.
+    const result = await runDomainCheck({ domain: 'sapo.pt' }, ports);
+    const check = structured(result)['nameservers'] as { answers: { outcome: string }[] };
+    const codes = findingCodes(result);
+
+    expect(check.answers.every((answer) => answer.outcome !== 'lame')).toBe(true);
+    expect(codes).not.toContain('nameserver_not_authoritative');
+    expect(codes).not.toContain('nameserver_does_not_resolve');
+  });
+
+  it('skips the queries when asked to', async () => {
+    const result = await runDomainCheck({ domain: 'example.com', checkNameservers: false }, ports);
+
+    expect(structured(result)['nameservers']).toMatchObject({ checked: false });
+  });
+});
+
 describe('uptime_check against a real site', () => {
   it('fetches a page and reports its redirect chain', async () => {
     const result = await runUptimeCheck({ url: 'http://github.com' }, ports);

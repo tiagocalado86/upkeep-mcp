@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { DnsRecords, RevocationReport } from '../types.js';
+import type { DnsRecords, NameserverCheck, RevocationReport } from '../types.js';
 import { CheckError } from './errors.js';
 import { runAxe, type AxeRun } from './axe.js';
 import { createTtlCache } from './cache.js';
@@ -12,6 +12,7 @@ import {
   resolveRecords,
   type DnsResolver,
 } from './dns.js';
+import { DNS_PORT, queryOverTcp } from './dns-wire.js';
 import {
   getBytes,
   getText,
@@ -21,6 +22,7 @@ import {
   type HttpHopResult,
   type TextResult,
 } from './http-client.js';
+import { askNameservers } from './nameservers.js';
 import { buildOcspRequest, readOcspResponse } from './ocsp.js';
 import {
   allowAnyTarget,
@@ -49,6 +51,13 @@ export interface DnsClient {
   resolveRecords(domain: string): Promise<DnsRecords>;
   /** Whether the parent zone publishes a DS record, or `null` if unestablished. */
   hasDsRecord(domain: string): Promise<boolean | null>;
+  /**
+   * What each nameserver a zone publishes says about the zone, asked directly.
+   *
+   * Takes the NS set rather than looking it up, because the caller has already
+   * resolved it and asking twice would let the two answers disagree.
+   */
+  nameservers(zone: string, nameservers: readonly string[]): Promise<NameserverCheck>;
 }
 
 /** Registration lookups over RDAP. */
@@ -141,6 +150,7 @@ export interface Ports {
 let shared: {
   dnsCache: ReturnType<typeof createTtlCache<DnsRecords>>;
   dsCache: ReturnType<typeof createTtlCache<boolean | null>>;
+  nameserverCache: ReturnType<typeof createTtlCache<NameserverCheck>>;
   rdapCache: ReturnType<typeof createTtlCache<RdapLookup>>;
   tlsCache: ReturnType<typeof createTtlCache<TlsInspection>>;
   ocspCache: ReturnType<typeof createTtlCache<RevocationReport>>;
@@ -158,6 +168,7 @@ function sharedState(): NonNullable<typeof shared> {
   shared ??= {
     dnsCache: createTtlCache<DnsRecords>({ ttlMs: TTL.dnsMs }),
     dsCache: createTtlCache<boolean | null>({ ttlMs: TTL.dnsMs }),
+    nameserverCache: createTtlCache<NameserverCheck>({ ttlMs: TTL.dnsMs }),
     rdapCache: createTtlCache<RdapLookup>({ ttlMs: TTL.rdapMs }),
     tlsCache: createTtlCache<TlsInspection>({ ttlMs: TTL.tlsMs }),
     ocspCache: createTtlCache<RevocationReport>({ ttlMs: TTL.ocspMs }),
@@ -547,6 +558,7 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
   const {
     dnsCache,
     dsCache,
+    nameserverCache,
     rdapCache,
     tlsCache,
     ocspCache,
@@ -575,6 +587,26 @@ export function createDefaultPorts(options: PortOptions = {}): Ports {
           // `null` means the resolver would not answer, not that the zone is
           // unsigned, so it is a miss and is held for the shorter time.
           (signed) => (signed === null ? TTL.dnsNegativeMs : TTL.dnsMs),
+        ),
+      nameservers: (zone, hosts) =>
+        // Keyed by the NS set as well as the zone: a delegation that changed
+        // between two runs is a different question, not a stale answer.
+        nameserverCache.fetch(`${zone}|${[...hosts].join(',')}`, () =>
+          askNameservers(zone, hosts, {
+            resolveAddresses: async (host) => {
+              const addresses = await resolveAddresses(host);
+              // The guard is applied to the address about to be connected to,
+              // not to the name it came from. A nameserver record pointing at
+              // 169.254.169.254 is exactly the reason this check has to be
+              // guarded at all, and it is a name the target domain chooses.
+              for (const address of addresses) await guard.assertPublic(address);
+              return addresses;
+            },
+            query: (address, name, type, timeoutMs) => {
+              guard.assertPort(DNS_PORT, 'dns:');
+              return limiter.run(address, () => queryOverTcp(address, name, type, timeoutMs));
+            },
+          }),
         ),
     },
     rdap: {

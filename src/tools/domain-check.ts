@@ -14,6 +14,9 @@ import type {
   DnssecStatus,
   EmailAuth,
   Finding,
+  NameserverAnswer,
+  NameserverCheck,
+  NameserverOutcome,
   RdapRegistration,
 } from '../types.js';
 
@@ -26,6 +29,17 @@ const inputSchema = z.object({
         'Internationalised names ("café.pt") are accepted and converted automatically. ' +
         'Registration is a property of the registrable domain, so "www.shop.example.co.uk" is ' +
         'checked as "example.co.uk".',
+    ),
+  checkNameservers: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether to ask the domain's own nameservers whether they agree about it, which no " +
+        'recursive resolver can answer. Costs one DNS query over TCP to each nameserver the ' +
+        'domain publishes, in parallel, and finds a server left in the delegation that no longer ' +
+        'serves the zone and a zone edited on one server and never transferred to the others. ' +
+        'Defaults to true. Set false to skip it — the rest of the check is unaffected. ' +
+        'Example: false',
     ),
 });
 
@@ -184,6 +198,70 @@ const outputSchema = z.object({
       "Email authentication, read from the domain's own TXT records. DKIM is not reported: " +
         'finding a DKIM key needs its selector, which cannot be discovered without guessing.',
     ),
+
+  nameservers: z
+    .object({
+      checked: z
+        .boolean()
+        .describe(
+          'Whether the nameservers were asked directly. False when the caller passed ' +
+            'checkNameservers: false, when the domain publishes no NS records, or when the ' +
+            'check could not be started at all.',
+        ),
+      unavailableReason: z
+        .string()
+        .nullable()
+        .describe(
+          'Why they were not asked, or which of them were left out when a domain publishes more ' +
+            'than this tool will query. Null when every published nameserver was asked.',
+        ),
+      answers: z
+        .array(
+          z.object({
+            host: z.string().describe('The nameserver, as the domain publishes it.'),
+            address: z
+              .string()
+              .nullable()
+              .describe('The address that was asked, or null when the name resolved to none.'),
+            outcome: z
+              .enum(['authoritative', 'lame', 'unresolvable', 'unreachable'])
+              .describe(
+                'What came of asking it. "authoritative" is what should happen. "lame" answered ' +
+                  'without authority for the zone, so it is in the delegation and not serving ' +
+                  'it. "unresolvable" means its own hostname does not resolve, so no resolver ' +
+                  'can reach it either. "unreachable" means it could not be asked over TCP port ' +
+                  '53, which says nothing about UDP and is not by itself a fault.',
+              ),
+            serial: z
+              .int()
+              .nullable()
+              .describe(
+                'The zone serial this server holds. This is the version number of the zone, and ' +
+                  'it is what makes two nameservers comparable.',
+              ),
+            problem: z
+              .string()
+              .nullable()
+              .describe('Why it did not answer usefully, in plain words. Null when it did.'),
+          }),
+        )
+        .describe('One entry per nameserver asked, in the order the domain publishes them.'),
+      serials: z
+        .array(z.int())
+        .describe('The distinct serials seen, ascending. More than one means disagreement.'),
+      agree: z
+        .boolean()
+        .describe(
+          'Whether every nameserver that answered holds the same version of the zone. True when ' +
+            'none answered, because nothing was compared.',
+        ),
+    })
+    .describe(
+      "What the domain's own nameservers said when each was asked directly, over TCP port 53 " +
+        'with recursion off. This is the only way to see a nameserver left in the delegation ' +
+        'after a migration, or a zone edited on one server and never transferred to the others; ' +
+        'a recursive resolver answers with whatever one server told it and hides which.',
+    ),
 });
 
 /**
@@ -239,6 +317,7 @@ async function buildReport(
   const dnssec = await readDnssec(rdapResult, registrable, ports);
 
   const email = analyseEmailAuth(dns.txt, dns.dmarcTxt);
+  const nameservers = await readNameservers(input, registrable, dns, ports);
 
   const registrationSeverity = expirySeverity(registration.daysUntilExpiry, warnDays);
   collectRegistrationFindings(registration, registrationSeverity, lookupFailed, findings);
@@ -252,6 +331,7 @@ async function buildReport(
     // that matters.
     if (resolvesAtAll(dns)) collectEmailFindings(email, findings);
   }
+  if (nameservers.checked) collectNameserverFindings(nameservers, findings);
   if (dnssec.delegationSigned === false) {
     findings.push(
       finding(
@@ -274,6 +354,7 @@ async function buildReport(
     dnsResolved,
     dnssec,
     email,
+    nameservers,
   };
 
   return { ok: true as const, report };
@@ -350,6 +431,12 @@ export function registerDomainCheckTool(
         '',
         'Use it too for "why is this client\'s email going to spam?" or "can someone spoof this',
         'domain?" — SPF and DMARC are read from the domain\'s own DNS.',
+        '',
+        "It also asks each of the domain's own nameservers, directly, whether they agree about",
+        'the zone. That answers "why does this site work for some people and not others?" and',
+        '"is this old nameserver still in the delegation?" — a question no recursive resolver can',
+        'answer, because it replies with whatever one server told it and does not say which.',
+        'Pass checkNameservers: false to skip it.',
         '',
         'Do not use it to check whether a website responds — that is uptime_check — or to inspect',
         'an SSL certificate, which is ssl_check. It reads only what registries and DNS publish.',
@@ -579,6 +666,223 @@ function collectDnsFindings(dns: DnsRecords, findings: Finding[]): void {
 }
 
 /**
+ * Asks the zone's own nameservers about it, when there is something to ask.
+ *
+ * @param input The validated tool input, which may have turned this off.
+ * @param registrable The zone, which is what the nameservers are authoritative
+ *   for.
+ * @param dns The records, whose NS set names who to ask.
+ * @param ports The I/O boundary.
+ * @returns What each nameserver said, or why none was asked.
+ * @throws Never. A nameserver that will not answer is a finding, and so is a
+ *   whole check that could not run.
+ */
+async function readNameservers(
+  input: Input,
+  registrable: string,
+  dns: DnsRecords,
+  ports: Ports,
+): Promise<NameserverCheck> {
+  if (input.checkNameservers === false) {
+    return notAsked('the caller asked for the nameservers not to be queried');
+  }
+  if (dns.ns.length === 0) {
+    return notAsked('the domain publishes no NS records, so there was nothing to ask');
+  }
+
+  try {
+    return await ports.dns.nameservers(registrable, dns.ns);
+  } catch (cause) {
+    return notAsked(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/**
+ * @param reason Why nothing was asked, in plain words.
+ * @returns A check that did not run.
+ * @throws Never.
+ */
+function notAsked(reason: string): NameserverCheck {
+  return { checked: false, unavailableReason: reason, answers: [], serials: [], agree: true };
+}
+
+/**
+ * Appends findings about what the zone's own nameservers said.
+ *
+ * The grading turns on one distinction: what is broken for everybody, and what
+ * is only unestablished from here. A resolver asks a nameserver over UDP and
+ * falls back to TCP; this server can only use TCP, because UDP to arbitrary
+ * hosts does not leave every platform it is deployed to. So a nameserver that
+ * refuses TCP is not a broken nameserver — sapo.pt's four all refuse it and the
+ * domain resolves perfectly — while one whose hostname does not resolve, or
+ * that answers without authority for the zone, is broken for every resolver on
+ * the internet.
+ *
+ * **Serials disagreeing is `info`, not a warning.** Two ordinary things produce
+ * it. A domain served by two providers that do not transfer between them has
+ * two independent serials by design: github.com's NS1 servers report
+ * 1656468023 while its Route 53 servers report 1, and nothing is wrong.
+ * And a zone edited a minute ago has not reached every server yet: gov.uk's two
+ * sets were 301 apart when this was written, and were equal again later. What
+ * is left over — a transfer that has been stuck for a week — is real and worth
+ * reporting, and it cannot be told from the other two in one snapshot, so this
+ * says what it saw and what it means rather than grading a guess.
+ *
+ * @param check What each nameserver said.
+ * @param findings Collector, appended to in place.
+ * @throws Never.
+ */
+function collectNameserverFindings(check: NameserverCheck, findings: Finding[]): void {
+  const withOutcome = (outcome: NameserverOutcome): NameserverAnswer[] =>
+    check.answers.filter((answer) => answer.outcome === outcome);
+
+  const authoritative = withOutcome('authoritative');
+  const unresolvable = withOutcome('unresolvable');
+  const lame = withOutcome('lame');
+  const unreachable = withOutcome('unreachable');
+
+  if (unresolvable.length > 0) {
+    findings.push(
+      finding(
+        'nameserver_does_not_resolve',
+        'warning',
+        `${describeHosts(unresolvable)} is listed as a nameserver for this domain and its own ` +
+          'hostname does not resolve, so no resolver can reach it. It is almost always a server ' +
+          'that was decommissioned and left in the delegation.',
+      ),
+    );
+  }
+
+  if (lame.length > 0) {
+    findings.push(
+      finding(
+        'nameserver_not_authoritative',
+        'warning',
+        `${String(lame.length)} of the ${String(check.answers.length)} nameservers this domain ` +
+          'publishes answered without authority for the zone, which means they are in the ' +
+          `delegation but are not serving it: ${describeProblems(lame)}.`,
+      ),
+    );
+  }
+
+  if (authoritative.length === 0 && unreachable.length > 0) {
+    findings.push(
+      finding(
+        'nameservers_not_established',
+        'unknown',
+        `None of the ${String(check.answers.length)} nameservers could be asked over TCP port 53, ` +
+          'so nothing was established about them either way. That is a nameserver serving UDP ' +
+          'only, or a network here that does not let DNS out — not evidence of a fault: ' +
+          `${describeProblems(unreachable)}.`,
+      ),
+    );
+  } else if (unreachable.length > 0) {
+    findings.push(
+      finding(
+        'nameserver_not_asked',
+        'info',
+        `${describeHosts(unreachable)} could not be asked over TCP port 53, so it was left out ` +
+          'of the comparison. Resolvers use UDP first, so this is not by itself a fault.',
+      ),
+    );
+  }
+
+  if (!check.agree) {
+    findings.push(
+      finding(
+        'nameservers_disagree',
+        'info',
+        'The nameservers hold different versions of the zone: ' +
+          `${describeSerials(authoritative)}. That is normal for a domain served by two providers ` +
+          'that do not transfer between them, and normal for a minute after a change; a gap that ' +
+          'is still there tomorrow is a transfer that has stopped working.',
+      ),
+    );
+  }
+}
+
+/**
+ * Names nameservers with what was wrong with each, grouped by what that was.
+ *
+ * Grouped because the interesting case is four servers failing the same way,
+ * and repeating one sentence four times with four addresses in it is how a
+ * finding becomes something nobody reads.
+ *
+ * @param answers Nameservers that had a problem.
+ * @returns e.g. `ns1.example.com, ns2.example.com: it refused a connection on
+ *   TCP port 53`.
+ * @throws Never.
+ */
+function describeProblems(answers: readonly NameserverAnswer[]): string {
+  const byProblem = new Map<string, string[]>();
+
+  for (const answer of answers) {
+    const problem = answer.problem ?? 'no answer';
+    byProblem.set(problem, [...(byProblem.get(problem) ?? []), answer.host]);
+  }
+
+  return [...byProblem].map(([problem, hosts]) => `${hosts.join(', ')}: ${problem}`).join('; ');
+}
+
+/**
+ * @param answers Some nameservers.
+ * @returns Their hostnames, joined.
+ * @throws Never.
+ */
+function describeHosts(answers: readonly NameserverAnswer[]): string {
+  return answers.map((answer) => answer.host).join(', ');
+}
+
+/**
+ * Names which servers hold which version of the zone.
+ *
+ * Grouped by serial rather than listed per server, because the shape of the
+ * answer is the point: four servers on one version and four on another is a
+ * domain with two providers, and seven on one and one on another is a server
+ * that has fallen behind.
+ *
+ * @param answers Nameservers that answered with authority.
+ * @returns e.g. `1656468023 on dns1.p08.nsone.net, dns2.p08.nsone.net; 1 on
+ *   ns-421.awsdns-52.com`.
+ * @throws Never.
+ */
+function describeSerials(answers: readonly NameserverAnswer[]): string {
+  const bySerial = new Map<string, string[]>();
+
+  for (const answer of answers) {
+    const serial = answer.serial === null ? 'no serial' : String(answer.serial);
+    bySerial.set(serial, [...(bySerial.get(serial) ?? []), answer.host]);
+  }
+
+  return [...bySerial].map(([serial, hosts]) => `${serial} on ${hosts.join(', ')}`).join('; ');
+}
+
+/**
+ * Says what the nameservers themselves reported, in a clause.
+ *
+ * A clause rather than a line of its own: on a healthy domain this is one more
+ * fact about a list that is already being printed, and a report that gives
+ * every check a line is a report nobody reads to the end.
+ *
+ * @param check What each nameserver said.
+ * @returns A clause to append to the nameserver line, empty when none was asked.
+ * @throws Never.
+ */
+function describeAgreement(check: NameserverCheck): string {
+  if (!check.checked) return '';
+
+  const authoritative = check.answers.filter((answer) => answer.outcome === 'authoritative');
+  if (authoritative.length === 0) return ' (none of them could be asked directly)';
+
+  const counted = `${String(authoritative.length)} of ${String(check.answers.length)} answered`;
+  const serial = check.serials[0];
+
+  return check.agree && serial !== undefined
+    ? ` (${counted}, all on serial ${String(serial)})`
+    : ` (${counted}, serials ${check.serials.map(String).join(' and ')})`;
+}
+
+/**
  * Whether the domain exists in the DNS in any form.
  *
  * Nameservers count even with no address record: a domain delegated but not yet
@@ -727,6 +1031,7 @@ function summarise(report: {
   dnsResolved: boolean;
   dnssec: DnssecStatus;
   email: EmailAuth;
+  nameservers: NameserverCheck;
   findings: Finding[];
 }): string {
   const lines: string[] = [];
@@ -742,7 +1047,9 @@ function summarise(report: {
   }
 
   if (registration.registrar !== null) lines.push(`Registrar: ${registration.registrar}.`);
-  if (dns.ns.length > 0) lines.push(`Nameservers: ${dns.ns.join(', ')}.`);
+  if (dns.ns.length > 0) {
+    lines.push(`Nameservers: ${dns.ns.join(', ')}${describeAgreement(report.nameservers)}.`);
+  }
   lines.push(
     report.dnsResolved
       ? `Resolves: apex ${dns.apexResolves ? 'yes' : 'no'}, www ${dns.wwwResolves ? 'yes' : 'no'}. ` +

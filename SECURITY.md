@@ -41,9 +41,11 @@ service, ever. There is nothing to steal from its configuration and nothing to
 leak from its memory.
 
 **It reads only public information.** Everything it inspects is what any person
-with a browser or a DNS resolver could read: DNS records, RDAP registration
-data, TLS certificates presented by a public endpoint, the revocation status
-their issuers publish, HTTP response headers, and public page content. Registration data comes from RDAP only — there is no
+with a browser or a DNS resolver could read: DNS records — including what each
+of a domain's own nameservers answers about it, which is what any `dig
+@ns1.example.com` does — RDAP registration data, TLS certificates presented by a
+public endpoint, the revocation status their issuers publish, HTTP response
+headers, and public page content. Registration data comes from RDAP only — there is no
 WHOIS fallback, and
 [`docs/adr/0004`](docs/adr/0004-rdap-without-whois.md) explains why.
 
@@ -51,13 +53,14 @@ WHOIS fallback, and
 target to whoever answers for it, which is unavoidable, so the list is short and
 written down rather than left implicit:
 
-| Contacted                        | What it learns         | Why                                                                                                     |
-| -------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| The target host itself           | That it was requested  | `ssl_check` and `uptime_check` connect to it                                                            |
-| `data.iana.org`                  | Nothing about a domain | The RDAP bootstrap file, fetched at most once per process                                               |
-| The registry's RDAP server       | The domain             | It is the registry for that domain and already holds the record                                         |
-| `cloudflare-dns.com`             | The domain             | `node:dns` cannot query DS at all, so DNSSEC delegation is asked over DoH                               |
-| The certificate's OCSP responder | That certificate       | Only its issuer can say whether it has been revoked; skipped entirely when the server staples an answer |
+| Contacted                        | What it learns         | Why                                                                                                           |
+| -------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| The target host itself           | That it was requested  | `ssl_check` and `uptime_check` connect to it                                                                  |
+| `data.iana.org`                  | Nothing about a domain | The RDAP bootstrap file, fetched at most once per process                                                     |
+| The registry's RDAP server       | The domain             | It is the registry for that domain and already holds the record                                               |
+| `cloudflare-dns.com`             | The domain             | `node:dns` cannot query DS at all, so DNSSEC delegation is asked over DoH                                     |
+| The certificate's OCSP responder | That certificate       | Only its issuer can say whether it has been revoked; skipped entirely when the server staples an answer       |
+| The domain's own nameservers     | The domain             | Only they can say whether they agree about the zone they are listed for; `domain_check` asks each for its SOA |
 
 Nothing else is contacted, no analytics or telemetry is sent anywhere, and every
 request carries a `User-Agent` naming this project and linking to it.
@@ -70,9 +73,13 @@ access controls. It inspects public configuration and reports on it.
 does what the person running it asks, including checking a staging box on their
 own network. Run as a public endpoint it refuses any target resolving outside
 public unicast space — loopback, private ranges, and the link-local address
-where cloud metadata services live — and opens no port but 443, because an
-endpoint that connects anywhere on request is a port scanner with someone else's
-name on it. The limits of that guard, including the one it does not close, are
+where cloud metadata services live — and opens no port but three: 443, 80 for
+the question of whether plain HTTP upgrades, and 53 for the domain's own
+nameservers. That last one is not a caller's to point anywhere: the destination
+is whatever the target domain's NS records name, resolved and put through the
+same guard as every other target, and the question asked is the zone's SOA. Any
+other port is refused, because an endpoint that connects anywhere on request is
+a port scanner with someone else's name on it. The limits of that guard, including the one it does not close, are
 in [`docs/adr/0012`](docs/adr/0012-public-target-guard.md).
 
 **It behaves politely on the network.** `robots.txt` is respected on any page

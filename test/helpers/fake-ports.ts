@@ -10,12 +10,62 @@ import type {
   CertificateSummary,
   ChainSummary,
   DnsRecords,
+  NameserverAnswer,
+  NameserverCheck,
   RdapRegistration,
   RevocationReport,
 } from '../../src/types.js';
 
 /** The moment every tool test pretends it is. */
 export const NOW = new Date('2026-08-31T12:00:00.000Z');
+
+/**
+ * A nameserver check where every published nameserver answered with authority
+ * and they all hold the same version of the zone.
+ *
+ * @param answers Per-nameserver overrides, keyed by host.
+ * @returns A check with nothing to report.
+ */
+export function agreeingNameservers(
+  answers: Record<string, Partial<NameserverAnswer>> = {},
+  hosts: readonly string[] = ['ns1.example.net', 'ns2.example.net'],
+): NameserverCheck {
+  const all = hosts.map((host): NameserverAnswer => ({
+    host,
+    address: '192.0.2.53',
+    outcome: 'authoritative',
+    serial: 2026090701,
+    problem: null,
+    ...answers[host],
+  }));
+  const serials = [
+    ...new Set(all.map((answer) => answer.serial).filter((serial) => serial !== null)),
+  ].sort((left, right) => left - right);
+
+  return {
+    checked: true,
+    unavailableReason: null,
+    answers: all,
+    serials,
+    agree: serials.length <= 1,
+  };
+}
+
+/**
+ * A nameserver check that did not run, which is the default for every tool test
+ * that is not about one.
+ *
+ * @returns A check with nothing asked and nothing to disagree about.
+ */
+export function unaskedNameservers(): NameserverCheck {
+  return {
+    checked: false,
+    unavailableReason: 'the domain publishes no NS records, so there was nothing to ask',
+    answers: [],
+    serials: [],
+    agree: true,
+  };
+}
 
 /**
  * DNS records with nothing in them, as a base for tests to override.
@@ -166,6 +216,8 @@ export function goodRevocation(overrides: Partial<RevocationReport> = {}): Revoc
 export interface FakeOptions {
   dnsRecords?: DnsRecords | Error;
   dsRecord?: boolean | null;
+  /** What the zone's own nameservers answered. Defaults to a check that did not run. */
+  nameservers?: NameserverCheck | Error;
   rdap?: RdapLookup | Error;
   tls?: TlsInspection | Error;
   /** What the OCSP check establishes. Defaults to a certificate that is not revoked. */
@@ -227,6 +279,7 @@ export function fakePorts(options: FakeOptions = {}): Ports {
     dns: {
       resolveRecords: () => settle(options.dnsRecords, emptyDns()),
       hasDsRecord: () => Promise.resolve(options.dsRecord ?? null),
+      nameservers: () => settle(options.nameservers, unaskedNameservers()),
     },
     rdap: {
       lookupDomain: () =>

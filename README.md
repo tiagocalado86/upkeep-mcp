@@ -15,7 +15,7 @@ browser is implemented and useful today.
 
 | Tool                  | Purpose                                                                     | Status    |
 | --------------------- | --------------------------------------------------------------------------- | --------- |
-| `domain_check`        | Registration expiry, registrar, nameservers, DNS records, DNSSEC delegation | Available |
+| `domain_check`        | Registration expiry, registrar, nameserver agreement, DNS records, DNSSEC   | Available |
 | `ssl_check`           | Certificate expiry, issuer, chain validity, SAN coverage, TLS version       | Available |
 | `uptime_check`        | HTTP status, response time, redirect chain, HTTPS upgrade, security headers | Available |
 | `health`              | Server name, version, Node.js version, uptime                               | Available |
@@ -107,6 +107,26 @@ and a selector cannot be discovered — only guessed, one DNS query per guess.
 That is subdomain enumeration, which this project does not do, so a domain with
 no DKIM and one whose selector was not guessed are left indistinguishable rather
 than the second being reported as the first.
+
+**Each of the domain's own nameservers is then asked about the zone directly**,
+over TCP port 53 with recursion off, which is the one question a recursive
+resolver cannot answer: it replies with whatever one server told it and does not
+say which. That finds a server left in the delegation after a migration — it
+answers `REFUSED`, or its own hostname stopped resolving, and every resolver
+query landing there is slow or fails — and it finds nameservers holding
+different versions of the zone, which is the "it works for me but not for my
+colleague" outage.
+
+What is a fault and what is only unestablished are graded apart. Resolvers ask
+over UDP first and this server can only use TCP, so a nameserver that refuses
+TCP is not a broken one: `sapo.pt`'s four all refuse it and the domain resolves
+perfectly. Different serials are `info` too — `github.com` runs two providers
+that do not transfer between them, so four of its nameservers report
+`1656468023` and four report `1`, and nothing is wrong. A hostname that does not
+resolve, or an answer without authority for the zone, is broken for everybody
+and is a warning. Pass `checkNameservers: false` to skip the whole thing.
+[`docs/adr/0020`](docs/adr/0020-asking-the-nameservers-over-tcp.md) records why
+it speaks DNS by hand and what it deliberately does not check.
 
 ### `ssl_check`
 
@@ -329,10 +349,10 @@ rest of the server. Someone who cannot run a server themselves should not get a
 weaker tool than someone who can.
 
 One thing genuinely differs, and it is a property of running in public rather
-than a compromise: **it contacts only public addresses, and only the web
-ports** — 443, or 80 when checking whether plain HTTP upgrades. So it refuses to
-check anything on your own network, `localhost` included. Use the stdio server
-for those.
+than a compromise: **it contacts only public addresses, and only three ports** —
+443, 80 when checking whether plain HTTP upgrades, and 53 for the nameservers a
+domain itself publishes. So it refuses to check anything on your own network,
+`localhost` included. Use the stdio server for those.
 
 ### Running your own over HTTP
 
@@ -395,6 +415,11 @@ that does less.
   [`docs/adr/0004`](docs/adr/0004-rdap-without-whois.md) explains why.
 - **DNSSEC is not validated.** The tool reports whether a delegation is signed
   and where it learned that. It never claims to have validated a chain.
+- **The parent's delegation is not compared with the zone's own.** "The
+  nameservers at the registrar are not the nameservers in the zone" is the other
+  classic delegation fault, and answering it means querying the parent zone's
+  servers for a referral — a second hop and a different feature. What is checked
+  is whether the zone's own nameservers agree with each other.
 - **Response time includes connection setup.** It is wall clock to the first
   response headers, covering DNS, TCP and TLS, so it is not a measure of server
   processing time.

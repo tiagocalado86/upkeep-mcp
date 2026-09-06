@@ -19,6 +19,7 @@ import {
   registration,
   structured,
   text,
+  unaskedNameservers,
 } from '../helpers/fake-ports.js';
 
 /** How one site behaves, for a portfolio-sized fake. */
@@ -50,6 +51,7 @@ function portfolioPorts(
     dns: {
       resolveRecords: () => Promise.resolve(healthyDns()),
       hasDsRecord: () => Promise.resolve(true),
+      nameservers: () => Promise.resolve(unaskedNameservers()),
     },
     rdap: {
       lookupDomain: (domain) => {

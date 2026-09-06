@@ -9,6 +9,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`domain_check` asks a domain's own nameservers whether they agree about it.**
+  Every other check here goes through a recursive resolver, which answers with
+  whatever one authoritative server told it and does not say which. Two faults
+  are invisible from there and both are ones a retainer is judged on. A
+  nameserver decommissioned after a migration and left in the delegation
+  answers `REFUSED`, or its own hostname stops resolving, and every resolver
+  query that lands on it is slow or fails. And nameservers holding different
+  versions of the zone resolve correctly for some visitors and not others,
+  intermittently — the outage a client describes as "it works for me but not for
+  my colleague".
+
+  Each nameserver is now asked for the zone's SOA directly, in parallel, with
+  recursion off. The serial is the zone's version number, so two servers
+  reporting different ones are serving different data whatever else they agree
+  about.
+
+  **Over TCP port 53, with the DNS message built and read in this repository.**
+  `node:dns` cannot ask: `setServers` sends UDP, which `docs/deploying.md` has
+  recorded since v0.3 does not leave Cloud Run, and it exposes no `AA` flag, so
+  an answer a server is authoritative for cannot be told from one it repeated.
+  DNS-over-HTTPS is no help either — a DoH endpoint is itself a recursive
+  resolver. `src/lib/dns-wire.ts` is about 300 lines that understand a header, a
+  question, resource records and name compression, and refuse a pointer that
+  loops, a record claiming more data than it has, and a message larger than one
+  may be. The same decision as `der.ts`, for the same reason: this parses bytes
+  a stranger's server chose.
+
+  **This opens a third port on the hosted instance**, which until now contacted
+  443 and 80 and said so in four places, now all updated. The destination is not
+  a caller's to choose: it is whatever the target domain's own NS records name,
+  resolved and put through the same public-target guard as every other
+  destination — an NS record pointing at `169.254.169.254` is exactly why that
+  guard is not optional — and the question asked is fixed. `PUBLIC_PORTS` in
+  `src/lib/public-target.ts` remains the whole list of what may be opened.
+
+  **What is a fault and what is merely unestablished are graded apart, and
+  getting that wrong would have been worse than not shipping this.** A resolver
+  asks over UDP first and this server can only use TCP, so a nameserver that
+  refuses TCP is not broken: `sapo.pt`'s four all refuse it and the domain
+  resolves perfectly. That is `info`, or `unknown` when it is true of every one
+  of them, and never a warning. A hostname that does not resolve, or an answer
+  without authority for the zone, is broken for every resolver on the internet
+  and is a warning.
+
+  **Serials disagreeing is `info` too.** Two ordinary things produce it: a
+  domain served by two providers that do not transfer between them —
+  `github.com`'s NS1 servers report `1656468023` while its Route 53 servers
+  report `1`, because Route 53 always reports `1` — and a zone changed a minute
+  ago, which is what `gov.uk` was doing when this was written, its two sets 301
+  apart and equal again later. A transfer stuck for a week is real and is worth
+  reporting, it cannot be told from those two in one snapshot, and so the report
+  says what it saw and what it means instead of grading a guess. Both gradings
+  came from running the check against real domains; against fixtures every one
+  of them would have read as a fault.
+
+  Bounded like everything else: at most eight nameservers, in parallel, on a
+  five-second deadline each, through the same per-host limiter, cached for as
+  long as any other DNS answer. `checkNameservers: false` turns it off. The
+  parent's delegation is deliberately not compared with the zone's own — that is
+  a second hop and a different feature —
+  [`docs/adr/0020`](docs/adr/0020-asking-the-nameservers-over-tcp.md) records
+  that and the rest.
+
 - **`seo_audit` checks the sitemap against the rules of the protocol.** A file
   that answers `200` and parses is not the same as a file that works, and the
   check could not tell them apart: it counted `<loc>` elements and called that a

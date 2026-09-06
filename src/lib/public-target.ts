@@ -26,24 +26,35 @@ export interface TargetGuard {
    * @param protocol The scheme it would use, which decides the port allowed.
    * @throws {CheckError} `invalid_input` when the port may not be contacted.
    */
-  assertPort(port: number, protocol: WebProtocol): void;
+  assertPort(port: number, protocol: AllowedProtocol): void;
 }
 
 /**
- * The ports a public deployment will open, one per scheme.
+ * Every port a public deployment will open, one per scheme.
  *
  * Not a nicety: a public endpoint that connects to any port on any host is a
  * port scanner with someone else's name on it, and every hosting provider's
- * acceptable use policy forbids running one.
+ * acceptable use policy forbids running one. This table is the whole list, so
+ * that "what can this thing connect to?" is one place to read.
  *
  * Port 80 is here because `uptime_check` answers "does plain HTTP still work,
  * and does it upgrade?" — a question that cannot be asked over 443. Two web
  * ports is not a port scanner; it is the web.
+ *
+ * Port 53 is here because `domain_check` asks a zone's own nameservers whether
+ * they agree about it, which no recursive resolver can answer. The destination
+ * is not a caller's to choose: it is whatever the domain's own NS records name,
+ * resolved and put through {@link TargetGuard.assertPublic} like everything
+ * else, and the question asked is the zone's SOA. One fixed port, on hosts the
+ * target domain itself publishes, is still not a scan.
  */
-const PUBLIC_PORTS = { 'https:': 443, 'http:': 80 } as const;
+const PUBLIC_PORTS = { 'https:': 443, 'http:': 80, 'dns:': 53 } as const;
 
-/** The schemes a public deployment will contact. */
-export type WebProtocol = keyof typeof PUBLIC_PORTS;
+/** Every scheme a public deployment will contact. */
+export type AllowedProtocol = keyof typeof PUBLIC_PORTS;
+
+/** The schemes that carry a URL, which is most of what this project fetches. */
+export type WebProtocol = Exclude<AllowedProtocol, 'dns:'>;
 
 /**
  * A guard that allows everything.
@@ -97,7 +108,7 @@ export function allowOnlyPublicTargets(
       }
     },
 
-    assertPort: (port: number, protocol: WebProtocol): void => {
+    assertPort: (port: number, protocol: AllowedProtocol): void => {
       const allowed = PUBLIC_PORTS[protocol];
       if (port !== allowed) {
         throw new CheckError(

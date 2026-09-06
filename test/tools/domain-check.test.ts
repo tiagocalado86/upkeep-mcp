@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CheckError } from '../../src/lib/errors.js';
 import { runDomainCheck } from '../../src/tools/domain-check.js';
 import {
+  agreeingNameservers,
   emptyDns,
   fakePorts,
   findingCodes,
@@ -433,5 +434,166 @@ describe('runDomainCheck, email authentication', () => {
     );
 
     expect(text(result)).toContain('Email: SPF ~all, DMARC p=quarantine.');
+  });
+});
+
+describe('runDomainCheck, asking the nameservers themselves', () => {
+  it('says nothing when every nameserver serves the same version of the zone', async () => {
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers(),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual([]);
+    expect(structured(result)['nameservers']).toMatchObject({ checked: true, agree: true });
+    expect(text(result)).toContain('all on serial 2026090701');
+  });
+
+  it('reports a nameserver whose own hostname does not resolve', async () => {
+    // Nothing can reach it, this server included, so it is a fault of the
+    // delegation and not of the way this check asks.
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers({
+          'ns2.example.net': {
+            outcome: 'unresolvable',
+            address: null,
+            serial: null,
+            problem: 'its hostname does not resolve to any address',
+          },
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('nameserver_does_not_resolve');
+    expect(structured(result)['severity']).toBe('warning');
+  });
+
+  it('reports a nameserver that answers without authority for the zone', async () => {
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers({
+          'ns2.example.net': {
+            outcome: 'lame',
+            serial: null,
+            problem: 'it answered REFUSED for the zone',
+          },
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('nameserver_not_authoritative');
+    expect(text(result)).toContain('REFUSED');
+  });
+
+  it('does not blame the domain for a nameserver that only refuses TCP', async () => {
+    // Resolvers ask over UDP first. sapo.pt's four nameservers all refuse TCP
+    // and the domain resolves perfectly, so this must never be a warning.
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers({
+          'ns2.example.net': {
+            outcome: 'unreachable',
+            serial: null,
+            problem: 'it refused a connection on TCP port 53',
+          },
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toContain('nameserver_not_asked');
+    expect(structured(result)['severity']).toBe('info');
+  });
+
+  it('grades a domain where none could be asked as unknown, not as broken', async () => {
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers({
+          'ns1.example.net': {
+            outcome: 'unreachable',
+            serial: null,
+            problem: 'it refused a connection on TCP port 53',
+          },
+          'ns2.example.net': {
+            outcome: 'unreachable',
+            serial: null,
+            problem: 'it refused a connection on TCP port 53',
+          },
+        }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual(['nameservers_not_established']);
+    expect(structured(result)['severity']).toBe('unknown');
+    // One reason, said once, for both servers that share it.
+    expect(text(result)).toContain(
+      'ns1.example.net, ns2.example.net: it refused a connection on TCP port 53',
+    );
+  });
+
+  it('reports servers holding different versions without calling it a fault', async () => {
+    // github.com has eight nameservers across two providers that do not
+    // transfer between them: four report a date-based serial and four report 1.
+    // Nothing is wrong, and a warning there would be wrong on every domain run
+    // that way.
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        nameservers: agreeingNameservers({ 'ns2.example.net': { serial: 1 } }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual(['nameservers_disagree']);
+    expect(structured(result)['severity']).toBe('info');
+    expect(text(result)).toContain('1 on ns2.example.net');
+  });
+
+  it('skips the whole thing when the caller asks it to', async () => {
+    const result = await runDomainCheck(
+      { domain: 'example.com', checkNameservers: false },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns(),
+        // Would produce a finding if it were consulted at all.
+        nameservers: agreeingNameservers({ 'ns2.example.net': { outcome: 'lame', serial: null } }),
+      }),
+    );
+
+    expect(findingCodes(result)).toEqual([]);
+    expect(structured(result)['nameservers']).toMatchObject({
+      checked: false,
+      unavailableReason: 'the caller asked for the nameservers not to be queried',
+    });
+  });
+
+  it('asks nothing of a domain that publishes no nameservers', async () => {
+    const result = await runDomainCheck(
+      { domain: 'example.com' },
+      fakePorts({
+        rdap: { registration: registration(), delegationSigned: true },
+        dnsRecords: healthyDns({ ns: [] }),
+        nameservers: new Error('the port must not be called when there is nothing to ask'),
+      }),
+    );
+
+    expect(structured(result)['nameservers']).toMatchObject({ checked: false });
   });
 });

@@ -11,7 +11,7 @@ Text returned to the conversation:
 ```
 example.com expires 2027-08-13 (340 days).
 Registrar: RESERVED-Internet Assigned Numbers Authority.
-Nameservers: elliott.ns.cloudflare.com, hera.ns.cloudflare.com.
+Nameservers: elliott.ns.cloudflare.com, hera.ns.cloudflare.com (2 of 2 answered, all on serial 2413856909).
 Resolves: apex yes, www yes. DNSSEC: delegation signed.
 Email: SPF -all, DMARC p=reject.
 
@@ -26,7 +26,7 @@ Structured content:
   "domain": "example.com",
   "unicodeDomain": null,
   "registrableDomain": "example.com",
-  "checkedAt": "2026-09-06T17:56:58.582Z",
+  "checkedAt": "2026-09-06T23:33:20.064Z",
   "severity": "info",
   "findings": [
     {
@@ -55,8 +55,8 @@ Structured content:
     "apexResolves": true,
     "wwwResolves": true,
     "a": [
-      "104.20.23.154",
-      "172.66.147.243"
+      "172.66.147.243",
+      "104.20.23.154"
     ],
     "aaaa": [
       "2606:4700:10::ac42:93f3",
@@ -73,8 +73,8 @@ Structured content:
       }
     ],
     "txt": [
-      "_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9",
-      "v=spf1 -all"
+      "v=spf1 -all",
+      "_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9"
     ],
     "dmarcTxt": [
       "v=DMARC1;p=reject;sp=reject;adkim=s;aspf=s"
@@ -101,6 +101,30 @@ Structured content:
       "policy": "reject",
       "reportingAddresses": []
     }
+  },
+  "nameservers": {
+    "checked": true,
+    "unavailableReason": null,
+    "answers": [
+      {
+        "host": "elliott.ns.cloudflare.com",
+        "address": "108.162.195.228",
+        "outcome": "authoritative",
+        "serial": 2413856909,
+        "problem": null
+      },
+      {
+        "host": "hera.ns.cloudflare.com",
+        "address": "173.245.58.162",
+        "outcome": "authoritative",
+        "serial": 2413856909,
+        "problem": null
+      }
+    ],
+    "serials": [
+      2413856909
+    ],
+    "agree": true
   }
 }
 ```

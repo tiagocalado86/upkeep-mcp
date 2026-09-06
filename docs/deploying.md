@@ -9,11 +9,14 @@ This page is about the other one.
 A stranger holding the keyboard is not the same as you holding it, so the HTTP
 entrypoint is not the stdio entrypoint with a socket bolted on:
 
-- **It contacts only public addresses, and only the web ports.** 443 over
-  HTTPS, and 80 over plain HTTP, which is the only way to answer `uptime_check`'s
-  question about whether HTTP upgrades. Any other port is refused: an endpoint
-  that connects wherever a stranger asks is a port scanner wearing this
-  project's name. Anything resolving to loopback, a private range or the
+- **It contacts only public addresses, on three ports.** 443 over HTTPS; 80 over
+  plain HTTP, which is the only way to answer `uptime_check`'s question about
+  whether HTTP upgrades; and 53 to the nameservers a domain itself publishes,
+  which is the only way to answer whether they agree about it. That third one is
+  not a destination a caller chooses — it is whatever the target domain's NS
+  records name, put through the same guard as everything else. Any other port is
+  refused: an endpoint that connects wherever a stranger asks is a port scanner
+  wearing this project's name. Anything resolving to loopback, a private range or the
   link-local address where cloud metadata services live is refused with an
   explanation.
   [`docs/adr/0012`](adr/0012-public-target-guard.md) covers why, and what that
@@ -117,21 +120,30 @@ moving the service or paying for a load balancer in front of it, and the
 latency it saves is a few milliseconds on a check that already budgets ten
 seconds. Hence `europe-west1` in the command above.
 
-### Outbound UDP leaves this server one feature from breaking
+### Outbound UDP does not leave this platform, and one feature is built around it
 
 `domain_check` resolves through `node:dns`'s `Resolver`, which sends UDP to
 whatever `/etc/resolv.conf` names. On Cloud Run that is the metadata resolver at
 `169.254.169.254`, and it works — the platform depends on the same path.
 
 **UDP to arbitrary internet hosts does not leave Cloud Run.** Nothing here sends
-any, because `dns.ts` never calls `setServers`. The day it does — querying a
-zone's authoritative nameservers directly is the obvious next step for a
-domain-checking tool — every one of those queries fails on this platform, and
-`optional()` turns each failure into an empty record set. The symptom would be
-`domain_check` calmly reporting that a healthy client domain publishes no CAA,
-no MX and no NS.
+any, and `dns.ts` still never calls `setServers`. This was written down as the
+trap waiting for whoever added the obvious next feature — querying a zone's
+authoritative nameservers directly — because those queries would all fail here
+and `optional()` would turn each failure into an empty record set, so the
+symptom would be a healthy client domain reported as publishing no CAA, no MX
+and no NS.
 
-Whoever adds it: verify against a deployed instance, not locally.
+That feature was added in v0.6.0 and it takes the other road: **TCP port 53**,
+with the DNS message built and read in `src/lib/dns-wire.ts` rather than by
+`node:dns`, which offers no TCP-only mode and no way to see the `AA` flag.
+TCP egress leaves Cloud Run normally.
+[`docs/adr/0020`](adr/0020-asking-the-nameservers-over-tcp.md) records the
+decision, the port it opens, and how a nameserver that merely refuses TCP is
+kept from being reported as a broken one.
+
+Verified against the deployed instance, not only locally — which is what this
+section always asked for.
 
 **The platform resolver already declines one record type: CAA.** Measured on the
 first deployed instance — A, AAAA, NS, MX and TXT all correct, CAA empty for two
