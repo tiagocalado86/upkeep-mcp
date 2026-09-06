@@ -13,6 +13,7 @@ import { runAccessibilityAudit } from '../src/tools/accessibility-audit.js';
 import { runDomainCheck } from '../src/tools/domain-check.js';
 import { runPortfolioReport } from '../src/tools/portfolio-report.js';
 import { runSeoAudit } from '../src/tools/seo-audit.js';
+import { runSiteCrawl } from '../src/tools/site-crawl.js';
 import { runSslCheck } from '../src/tools/ssl-check.js';
 import { runUptimeCheck } from '../src/tools/uptime-check.js';
 
@@ -51,6 +52,17 @@ writeFileSync(
     'domain_check',
     '{ "name": "domain_check", "arguments": { "domain": "example.com" } }',
     await runDomainCheck({ domain: 'example.com' }, ports),
+  ),
+);
+
+writeFileSync(
+  'examples/site-crawl.md',
+  render(
+    'site_crawl',
+    '{ "name": "site_crawl", "arguments": { "url": "https://www.sitemaps.org/", "maxPages": 12 } }',
+    // A small static site that allows crawling, and one whose duplicate titles
+    // are real: three of its pages call themselves "sitemaps.org - Home".
+    await runSiteCrawl({ url: 'https://www.sitemaps.org/', maxPages: 12 }, ports),
   ),
 );
 

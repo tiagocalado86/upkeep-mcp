@@ -9,6 +9,7 @@ import { runDomainCheck } from '../../src/tools/domain-check.js';
 import { runAccessibilityAudit } from '../../src/tools/accessibility-audit.js';
 import { runPortfolioReport } from '../../src/tools/portfolio-report.js';
 import { runSeoAudit } from '../../src/tools/seo-audit.js';
+import { runSiteCrawl } from '../../src/tools/site-crawl.js';
 import { runSslCheck } from '../../src/tools/ssl-check.js';
 import { runUptimeCheck } from '../../src/tools/uptime-check.js';
 import { findingCodes, structured, text } from '../helpers/fake-ports.js';
@@ -308,6 +309,31 @@ describe('seo_audit against a real page', () => {
     expect(result.isError).toBeFalsy();
     expect(structured(result)['fetched']).toBe(false);
     expect(findingCodes(result)).toContain('page_disallowed_by_robots');
+  });
+});
+
+describe('site_crawl against a real site', () => {
+  it('walks a small site and finds what one page cannot say about itself', async () => {
+    // sitemaps.org is small, static, and allows crawling. Three of its pages
+    // call themselves "sitemaps.org - Home", which is the finding this tool
+    // exists for and which auditing any one of them would never produce.
+    const result = await runSiteCrawl({ url: 'https://www.sitemaps.org/', maxPages: 8 }, ports);
+    const report = structured(result);
+    const crawl = report['crawl'] as { pagesFetched: number; stoppedBecause: string };
+
+    expect(result.isError).toBeFalsy();
+    expect(crawl.pagesFetched).toBeGreaterThan(1);
+    expect((report['pages'] as { url: string }[])[0]?.url).toContain('sitemaps.org');
+    // Everything it visited is on the origin it started from.
+    for (const page of report['pages'] as { url: string }[]) {
+      expect(page.url.startsWith('https://www.sitemaps.org')).toBe(true);
+    }
+  });
+
+  it('fetches only the starting page when told to go no deeper', async () => {
+    const result = await runSiteCrawl({ url: 'https://example.com/', maxDepth: 0 }, ports);
+
+    expect((structured(result)['crawl'] as { pagesFetched: number }).pagesFetched).toBe(1);
   });
 });
 

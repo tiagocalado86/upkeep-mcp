@@ -9,6 +9,7 @@ never a client site. Regenerate them after a behaviour change so they stay true.
 | [ssl-check.md](ssl-check.md)       | `expired.badssl.com` | An expired certificate, reported rather than refused                      |
 | [uptime-check.md](uptime-check.md) | `http://github.com`  | An HTTP→HTTPS upgrade, the redirect chain and the HSTS policy             |
 | [seo-audit.md](seo-audit.md)       | `example.com`        | A page with no description, no canonical, no sitemap and no robots.txt    |
+| [site-crawl.md](site-crawl.md)     | `sitemaps.org`       | Five pages of one site, three of which call themselves "sitemaps.org - Home" |
 | [portfolio-report.md](portfolio-report.md) | three public domains | A whole portfolio ranked by urgency, with the sites that need nothing named |
 | [accessibility-audit.md](accessibility-audit.md) | the W3C's "before" demo page | A page built to fail: which WCAG rules, how many elements, and where |
 | [conversation.md](conversation.md) | a five-site demo portfolio | A whole session: the weekly triage, a drill-down, a quick pass, and what the comparison will and will not claim |

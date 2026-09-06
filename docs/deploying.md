@@ -143,7 +143,27 @@ decision, the port it opens, and how a nameserver that merely refuses TCP is
 kept from being reported as a broken one.
 
 Verified against the deployed instance, not only locally — which is what this
-section always asked for.
+section always asked for. The way to do that without putting unreleased code on
+the public URL is a tagged revision carrying no traffic:
+
+```bash
+gcloud run deploy upkeep-mcp --source . --region europe-west1 \
+  --execution-environment gen2 --allow-unauthenticated --port 8080 \
+  --memory 1Gi --max-instances 2 --concurrency 20 --timeout 300 \
+  --tag verify --no-traffic
+```
+
+which answers on `https://verify---<service>.run.app` while the public URL keeps
+serving what it served. Remove the tag when the verification is done, or the URL
+stays reachable:
+
+```bash
+gcloud run services update-traffic upkeep-mcp --region europe-west1 --remove-tags verify
+```
+
+On revision `upkeep-mcp-00010-gur` the answers were identical to the local ones,
+down to `sapo.pt`'s four nameservers refusing TCP in both places — which is what
+established that the refusals are theirs and not the platform's.
 
 **The platform resolver already declines one record type: CAA.** Measured on the
 first deployed instance — A, AAAA, NS, MX and TXT all correct, CAA empty for two

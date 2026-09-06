@@ -8,6 +8,7 @@ import { registerPortfolioSitesResource } from './resources/portfolio-sites.js';
 import { registerHealthTool } from './tools/health.js';
 import { registerPortfolioReportTool } from './tools/portfolio-report.js';
 import { registerSeoAuditTool } from './tools/seo-audit.js';
+import { registerSiteCrawlTool } from './tools/site-crawl.js';
 import { registerSslCheckTool } from './tools/ssl-check.js';
 import { registerUptimeCheckTool } from './tools/uptime-check.js';
 
@@ -32,6 +33,7 @@ export function createServer(ports: Ports = createDefaultPorts()): McpServer {
   registerSslCheckTool(server, ports);
   registerUptimeCheckTool(server, ports);
   registerSeoAuditTool(server, ports);
+  registerSiteCrawlTool(server, ports);
   registerAccessibilityAuditTool(server, ports);
   registerPortfolioReportTool(server, ports);
 

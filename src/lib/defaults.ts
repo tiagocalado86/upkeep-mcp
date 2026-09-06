@@ -57,6 +57,16 @@ export const TIMEOUTS = {
    */
   nameserverMs: 5_000,
   /**
+   * A whole crawl, however many pages it visits.
+   *
+   * Two minutes, and it is a stop rather than a failure: what was crawled up to
+   * it is reported with the reason it stopped. The per-host limiter paces one
+   * request every half second, so this is roughly what a hundred pages of a
+   * slow site costs, and a tool that can run for longer than a client waits is
+   * a tool nobody runs twice.
+   */
+  crawlMs: 120_000,
+  /**
    * Launching a browser, loading a page and running axe over it.
    *
    * Far longer than any other deadline here, and it has to be: a cold browser
@@ -171,6 +181,25 @@ export const LIMITS = {
    * silently dropped.
    */
   maxNameserversQueried: 8,
+  /**
+   * Pages one crawl will fetch.
+   *
+   * The budget ADR 0010 said a crawl would have to arrive with. Every page is
+   * one request paced by the per-host limiter at one every half second, so
+   * twenty-five is about fifteen seconds and the hundred this allows is about a
+   * minute. Pages found and not visited are counted and reported, never
+   * silently dropped.
+   */
+  maxPagesCrawled: 25,
+  /** Pages one crawl will fetch at the very most, whatever the caller asks for. */
+  maxPagesCrawledCeiling: 100,
+  /**
+   * Links deep from the entry page a crawl will follow.
+   *
+   * Three levels reaches everything a small business site has; past that the
+   * page count is the real bound anyway.
+   */
+  maxCrawlDepth: 3,
   /**
    * Internal links whose status is checked on one audit.
    *

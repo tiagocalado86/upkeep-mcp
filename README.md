@@ -20,6 +20,7 @@ browser is implemented and useful today.
 | `uptime_check`        | HTTP status, response time, redirect chain, HTTPS upgrade, security headers | Available |
 | `health`              | Server name, version, Node.js version, uptime                               | Available |
 | `seo_audit`           | Title, meta, headings, canonical, robots.txt, sitemap, broken links         | Available |
+| `site_crawl`          | Duplicate titles, broken links and stray noindex across a whole site        | Available |
 | `portfolio_report`    | All of the above across a portfolio, sorted by urgency                      | Available |
 | `accessibility_audit` | WCAG violations via axe-core, in a real browser                             | Available |
 
@@ -204,6 +205,49 @@ Needs attention:
 - [info] The page has no og:title or no og:image, so it will share poorly on social networks and in messaging apps.
 - [info] There is no sitemap at https://example.com/sitemap.xml: the sitemap URL answered 404.
 - [info] The site publishes no robots.txt. Nothing is blocked, but the sitemap cannot be declared there either.
+```
+
+### `site_crawl`
+
+Input: `url` — the page to start from — plus optional `maxPages` (25 by default,
+100 at most) and `maxDepth` (3 by default).
+
+Walks the site breadth-first from that page and reports **what one page cannot
+tell you about itself**: which pages share a title, and therefore compete with
+each other for the same search result; which share a meta description; which
+internal links are broken and, crucially, which page links to them; which pages
+still ask not to be indexed after a rebuild; and how much of the site was
+reachable at all.
+
+It stays on one origin — `https://example.com` and `https://www.example.com` are
+different origins, and a crawl that wandered between them would report one
+site's pages as duplicates of the other's.
+
+Three budgets bound it: pages, depth, and a two-minute deadline. Whichever one
+ended the crawl is reported along with how many URLs were found and not visited,
+because a report that does not say it saw a quarter of the site is worse than no
+report. `robots.txt` is read first and obeyed for every URL before it is
+requested; an unreadable one refuses the crawl outright, per RFC 9309.
+
+It is deliberately not part of `portfolio_report`. Twenty-five pages per site
+across a portfolio is a different order of cost, and
+[`docs/adr/0021`](docs/adr/0021-a-crawl-as-its-own-tool.md) — which
+[`docs/adr/0010`](docs/adr/0010-one-page-audit-instead-of-crawl-depth.md)
+predicted — records why it is a tool of its own rather than a `depth` parameter
+on `seo_audit`.
+
+```
+> Crawl example.com and tell me what needs fixing
+
+Crawled 25 pages of https://example.com, 3 levels deep.
+2 broken internal links, 1 title used more than once.
+Stopped at the page budget; 11 URLs were not visited.
+
+Needs attention:
+- [warning] 2 internal links are broken: https://example.com/old-pricing (it answered 404) linked from https://example.com/, https://example.com/team/ana (it answered 404) linked from https://example.com/team.
+- [warning] 1 title is used by more than one page, so those pages compete with each other in search results; the widest is "Services" on 4 pages.
+- [info] 6 of 25 pages have no meta description, so search engines will write their own summary of them.
+- [info] The crawl stopped at the page budget with 11 URLs found and not visited, so everything here describes the part of the site that was looked at.
 ```
 
 ### `portfolio_report`

@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`site_crawl`, a new tool: technical SEO across a whole site.**
+  [`docs/adr/0010`](docs/adr/0010-one-page-audit-instead-of-crawl-depth.md)
+  turned down the brief's `depth` parameter on `seo_audit` and closed by naming
+  the way back — "if a real crawl is wanted later it arrives as its own tool,
+  with its own budget, rather than as a parameter that quietly makes this one
+  expensive". This is that tool.
+
+  It reports what one page cannot say about itself. Which pages **share a
+  title**, and therefore compete with each other for one search result — three
+  of sitemaps.org's own pages call themselves "sitemaps.org - Home". Which share
+  a meta description. Which internal links are broken **and which page links to
+  them**, which is the half of a broken-link report that makes it fixable. Which
+  pages still ask not to be indexed after a rebuild. And how much of the site
+  was reachable at all.
+
+  Breadth-first from a starting page, one origin, `robots.txt` read first and
+  obeyed for every URL before it is requested — an unreadable one refuses the
+  crawl outright, per RFC 9309. Three budgets bound it: pages, depth, and a
+  two-minute deadline, and whichever one ended the crawl is reported along with
+  how many URLs were found and not visited, because a report that does not say
+  it saw a quarter of the site is worse than no report.
+
+  One origin, never two: `example.com` and `www.example.com` are different
+  origins, and a crawl that followed links between them would report one site's
+  pages as duplicates of the other's — true, and useless. A URL is remembered
+  without its fragment, because a fragment never reaches the server, so
+  `/about`, `/about#team` and `/about` again are one request.
+
+  Sequential rather than parallel, which costs nothing: the per-host limiter
+  already serialises requests to one origin at one every half second, so
+  concurrency would buy queueing rather than speed — and a parallel crawl
+  overshoots its page budget by however many requests were in flight when the
+  last one landed. Twenty-five pages is about fifteen seconds.
+
+  **It is deliberately not part of `portfolio_report`**, and that is the point of
+  it being a tool of its own: twenty-five pages for each of twenty sites is five
+  hundred requests, a different order of thing from the one page per site a
+  portfolio costs today.
+  [`docs/adr/0021`](docs/adr/0021-a-crawl-as-its-own-tool.md) records that, and
+  what the crawl still does not do — it executes no JavaScript, submits nothing,
+  and guesses no URLs.
+
 - **`domain_check` asks a domain's own nameservers whether they agree about it.**
   Every other check here goes through a recursive resolver, which answers with
   whatever one authoritative server told it and does not say which. Two faults

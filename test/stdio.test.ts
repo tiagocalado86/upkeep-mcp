@@ -115,6 +115,7 @@ describe('stdio transport', () => {
       'health',
       'portfolio_report',
       'seo_audit',
+      'site_crawl',
       'ssl_check',
       'uptime_check',
     ]);
