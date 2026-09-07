@@ -1,4 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SERVER_NAME, SERVER_VERSION } from '../src/lib/constants.js';
@@ -13,6 +16,18 @@ const PROTOCOL_VERSION = '2026-07-28';
 const repoRoot = new URL('..', import.meta.url);
 const tsx = fileURLToPath(new URL('node_modules/tsx/dist/cli.mjs', repoRoot));
 const entrypoint = fileURLToPath(new URL('src/index.ts', repoRoot));
+
+/**
+ * An empty directory to start the server in.
+ *
+ * Not the repository root, which is where this used to run. The portfolio
+ * resource reads `sites.json` relative to the working directory, and
+ * `sites.example.json` tells everyone to write one — so the assertion below
+ * that there is no portfolio file passed only for as long as nobody had taken
+ * the project's own advice. A developer with their own `sites.json` had a red
+ * suite and a good reason to distrust it.
+ */
+const emptyDirectory = mkdtempSync(join(tmpdir(), 'upkeep-stdio-'));
 
 interface JsonRpcResponse {
   id: number;
@@ -33,7 +48,7 @@ class StdioClient {
 
   constructor() {
     this.child = spawn(process.execPath, [tsx, entrypoint], {
-      cwd: fileURLToPath(repoRoot),
+      cwd: emptyDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.child.stdout.setEncoding('utf8');
@@ -131,8 +146,9 @@ describe('stdio transport', () => {
   });
 
   it('serves the portfolio resource without a portfolio file present', async () => {
-    // The repository has no sites.json — it is gitignored, and a client asking
-    // for the list must get a document explaining that, not a protocol error.
+    // The server runs in an empty directory here, so there is certainly no
+    // sites.json. A client asking for the list must get a document explaining
+    // that, not a protocol error.
     const { result, error } = await client.request('resources/read', {
       uri: 'portfolio://sites',
     });

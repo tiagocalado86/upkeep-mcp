@@ -27,6 +27,10 @@ coverage/
 # Local configuration with real client data — never commit
 sites.json
 sites.local.json
+# The run history a portfolio file may ask for, under the name sites.example.json
+# documents. It records which sites were at which severity, so it names clients
+# exactly as the portfolio does. A history path of your own needs its own line.
+upkeep-history.json
 
 # Local-only notes and briefing files (context, not part of the public repo)
 PROJECT_BRIEF.md

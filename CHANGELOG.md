@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The run history file is gitignored.** `.gitignore` covered `sites.json` and
+  `sites.local.json` — the files that name a person's clients — and not
+  `upkeep-history.json`, which `sites.example.json` tells people to write next to
+  them and which `SECURITY.md` describes in its own words as naming your clients
+  and which of them were broken. Anyone following the example verbatim ended up
+  with that file untracked in a repository, one `git add -A` away from being
+  committed, against the project's own rule that no client name may appear
+  anywhere in the repository or its history. Found by writing a portfolio file
+  and running it rather than by reading the code. A `history` path of your own
+  still needs its own line, and both the example and `SECURITY.md` now say so.
+
+- **The stdio suite no longer depends on the developer not having a portfolio.**
+  It started the server in the repository root and asserted that the portfolio
+  resource finds no `sites.json` — which held only for as long as nobody took
+  this project's own advice and wrote one. Anybody who did got a red suite from
+  a file the suite has no business reading. It now starts the server in an empty
+  temporary directory, which is also a truer test of what it claims to check.
+  Found the same way: by writing a `sites.json` and running it.
+
 ### Changed
 
 - **The `portfolio_report` timings in `docs/deploying.md` are measured again,

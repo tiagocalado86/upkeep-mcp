@@ -93,7 +93,10 @@ portfolio file names a `history` path, in which case one snapshot of the last
 run is written there and nowhere else. That file records which of your sites were
 at which severity and the finding codes behind it, so it names your clients; it
 is created readable by your account alone, replaced on every run, and ignored
-once it is older than ninety days. Leave the line out and nothing is written at
+once it is older than ninety days. Under the name `sites.example.json`
+documents, `upkeep-history.json`, it is in this repository's `.gitignore`
+alongside `sites.json`; point `history` at a name of your own and adding it there
+is yours to do. Leave the line out and nothing is written at
 all. See
 [`docs/adr/0018`](docs/adr/0018-opt-in-history-file.md). Beyond that there is no
 database, and no record of what was checked survives the process. See
