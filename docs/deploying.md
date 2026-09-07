@@ -161,6 +161,18 @@ stays reachable:
 gcloud run services update-traffic upkeep-mcp --region europe-west1 --remove-tags verify
 ```
 
+**`--no-traffic` leaves the service pinned, and removing the tag does not
+unpin it.** A service deployed without it serves whatever revision is newest;
+one `--no-traffic` deploy replaces that with an explicit revision, and every
+later `gcloud run deploy` then builds a revision that receives nothing. The
+symptom is a deploy reporting success while the public URL keeps serving the
+version before it — which is exactly what happened releasing v0.6.0. Put it back
+afterwards:
+
+```bash
+gcloud run services update-traffic upkeep-mcp --region europe-west1 --to-latest
+```
+
 On revision `upkeep-mcp-00010-gur` the answers were identical to the local ones,
 down to `sapo.pt`'s four nameservers refusing TCP in both places — which is what
 established that the refusals are theirs and not the platform's.

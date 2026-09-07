@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`docs/deploying.md` records what a `--no-traffic` deploy leaves behind.**
+  Verifying the nameserver queries on Cloud Run meant a tagged revision carrying
+  no traffic, which is the right way to do it — and it silently replaces "serve
+  whatever revision is newest" with a pin to one revision. Every later deploy
+  then builds a revision that receives nothing, and reports success while the
+  public URL keeps serving the version before it. That is how the v0.6.0 deploy
+  behaved; `--to-latest` puts it back, and the doc now says so next to the
+  recipe that causes it.
+
 ## [0.6.0] - 2026-09-07
 
 ### Added
