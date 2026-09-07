@@ -91,17 +91,36 @@ limiter already caps what one instance will take, and this caps how many
 instances a determined caller can conjure.
 
 `--timeout 300` is sized from the slowest thing this server does. Measured on a
-home connection, a `portfolio_report` over twenty public sites takes **8 seconds**
-for domain, SSL and uptime, and **60 seconds** once `seo_audit` joins them at the
-default 25 links a site — link checking is one request per link, paced at half a
-second per host, and it is the whole of the difference. A site that does not
-answer adds its own deadline rather than its own duration: one host refusing
-connections cost 13 seconds of the run it was in.
+home connection, over the same twenty public sites, one process per run so no
+cache is warm:
 
-That leaves real headroom at 300s, and the platform default is also 300s. Naming
-it here is a note that the number is load-bearing: a portfolio much past twenty
-sites with `seo` enabled, or a client on a slower link than the one this was
-measured on, needs a larger one.
+| Checks                          | Time         |
+| ------------------------------- | ------------ |
+| domain, SSL, uptime             | 8.4s         |
+| + `accessibility_audit`         | 12.6s        |
+| `accessibility_audit` alone     | 8.5s         |
+| + `seo_audit` (25 links a site) | 59.2s        |
+| all five                        | 55.2s, 55.7s |
+
+**Link checking is the cost, and the browser is not.** That is the opposite of
+what this section assumed before anyone measured it. `seo_audit` makes one
+request per internal link, paced at half a second per host, and it is the whole
+of the difference between eight seconds and a minute. Twenty axe runs cost about
+eight seconds between them — two browsers at a time, each launch and audit under
+a second on small static pages — and they overlap with everything else, which is
+why running all five checks is not slower than running `seo_audit` alone. A site
+that does not answer adds its own deadline rather than its own duration: one host
+refusing connections cost 13 seconds of the run it was in.
+
+That leaves real headroom at 300s for the measured case, and the platform default
+is also 300s. **The worst case is a different number and it does not fit.** Each
+check carries its own deadline, and the arithmetic of twenty sites all hitting
+theirs is what a timeout has to survive: `accessibility_audit` allows 45 seconds
+a site and runs two at a time, so twenty pages that all hang cost 450 seconds —
+past 300, and the request is cut off before the report exists. A portfolio much
+past twenty sites, a client on a slower link than this was measured on, or a run
+where several sites are genuinely down, needs a larger `--timeout` or belongs on
+the stdio server, which has no request deadline at all.
 
 A European region because the egress argument that once pointed at the United
 States does not survive arithmetic. Internet egress is priced by **destination**

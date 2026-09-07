@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The `portfolio_report` timings in `docs/deploying.md` are measured again,
+  with the browser in the run.** The numbers there predated
+  `accessibility_audit`, and the note left for whoever revisited them assumed
+  batched accessibility audits would be far slower than everything else. They
+  are not, and measuring was the only way to find that out: over the same twenty
+  public sites, twenty axe runs cost about eight seconds between them and add
+  four to a base run, while `seo_audit`'s link checking — one request per
+  internal link, paced per host — is still the whole of the difference between
+  eight seconds and a minute. Running all five checks is not slower than running
+  `seo_audit` alone, because the browsers overlap with the requests.
+
+  The table now also names the number that actually decides the flag, which no
+  measurement of a healthy portfolio can show: twenty sites all hitting the
+  45-second browser deadline, two at a time, is 450 seconds, and Cloud Run cuts
+  the request off at 300. A portfolio that size with sites genuinely down needs
+  a larger timeout or belongs on the stdio server, which has no request deadline.
+
 - **`docs/deploying.md` records what a `--no-traffic` deploy leaves behind.**
   Verifying the nameserver queries on Cloud Run meant a tagged revision carrying
   no traffic, which is the right way to do it — and it silently replaces "serve
